@@ -162,6 +162,8 @@ void close(const FunctionCallbackInfo<Value> &args)
     }
 }
 
+#include <unistd.h>
+
 /* we dup the fd, Node.js needs to destroy the passed socket */
 void upgrade(const FunctionCallbackInfo<Value> &args)
 {
@@ -179,7 +181,15 @@ void upgrade(const FunctionCallbackInfo<Value> &args)
         SSL_get_wbio(ssl)->references++;
     }
 
-    server->upgrade(args[0]->IntegerValue(), nativeString.getData(), ssl, true, true);
+    // dup
+    int fd = args[0]->IntegerValue();
+    fd = dup(fd);
+
+    // destroy
+    Local<Function>::Cast(args[3])->Call(args[4]->ToObject(), 0, nullptr);
+
+    // upgrade
+    server->upgrade(fd, nativeString.getData(), ssl, false, true);
 }
 
 void send(const FunctionCallbackInfo<Value> &args)

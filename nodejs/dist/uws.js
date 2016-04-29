@@ -277,9 +277,15 @@ class Server extends EventEmitter {
             /* this will probably never be noticed as you don't mix upgrade handling */
         });
 
+        if (upgradeHead.length) {
+            console.log('ERROR UPGRADE HEAD!!!!');
+            throw new Error('UPGRADE HEAAD');
+        }
+
         /* upgrades will be handled immediately */
-        this.nativeServer.upgrade(socket._handle.fd, request.headers['sec-websocket-key'], socket.ssl ? socket.ssl._external : null);
-        socket.destroy();
+        this.nativeServer.upgrade(socket._handle.fd, request.headers['sec-websocket-key'], socket.ssl ? socket.ssl._external : null, socket.destroy, socket);
+
+	//console.log('Upgrade head: ' + upgradeHead.length);
     }
 }
 

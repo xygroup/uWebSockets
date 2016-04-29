@@ -6,6 +6,10 @@ using namespace uWS;
 #include <algorithm>
 using namespace std;
 
+#include <chrono>
+
+auto upgradePoint = std::chrono::system_clock::now();
+
 #ifndef __linux
 #define MSG_NOSIGNAL 0
 #else
@@ -289,9 +293,7 @@ void Server::internalFragment(Socket socket, const char *fragment, size_t length
 
     // Text or binary
     if (opCode < 3) {
-
         if (!remainingBytes && fin && !socketData->buffer.length()) {
-
             if (opCode == 1 && !Server::isValidUtf8((unsigned char *) fragment, length)) {
                 socketData->server->disconnectionCallback(p);
                 socket.close(true);
@@ -300,11 +302,8 @@ void Server::internalFragment(Socket socket, const char *fragment, size_t length
 
             socketData->server->messageCallback(socket, (char *) fragment, length, opCode);
         } else {
-
             socketData->buffer.append(fragment, length);
             if (!remainingBytes && fin) {
-
-                // Chapter 6
                 if (opCode == 1 && !Server::isValidUtf8((unsigned char *) socketData->buffer.c_str(), socketData->buffer.length())) {
                     socketData->server->disconnectionCallback(p);
                     socket.close(true);
@@ -315,9 +314,7 @@ void Server::internalFragment(Socket socket, const char *fragment, size_t length
                 socketData->buffer.clear();
             }
         }
-
     } else {
-
         // swap PING/PONG
         if (opCode == PING) {
             opCode = PONG;
@@ -363,14 +360,15 @@ void Server::upgradeHandler(Server *server)
         SocketData *socketData = new SocketData;
         socketData->server = server;
 
+        uv_poll_start(clientPoll, UV_READABLE, (uv_poll_cb) onReadable);
+
         socketData->ssl = (SSL *) get<2>(upgradeRequest);
         if (socketData->ssl) {
-            cout << "Upgraded to SSL connection" << endl;
             SSL_set_fd(socketData->ssl, get<0>(upgradeRequest));
+            SSL_set_mode(socketData->ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
         }
 
         clientPoll->data = socketData;
-        uv_poll_start(clientPoll, UV_READABLE, (uv_poll_cb) onReadable);
 
         // add this poll to the list
         if (!server->clients) {
@@ -384,6 +382,12 @@ void Server::upgradeHandler(Server *server)
 
         Socket(clientPoll).write(upgradeResponse, sizeof(upgradeResponse) - 1, false);
         server->connectionCallback(clientPoll);
+        upgradePoint = chrono::system_clock::now();
+
+        /*for(int i = 0; i < 1000; i++) {
+            onReadable(clientPoll, 0, 0);
+            //usleep(1000);
+        }*/
     }
 
     server->upgradeQueueMutex.unlock();
@@ -665,19 +669,37 @@ void Server::onReadable(void *vp, int status, int events)
     FD fd;
     uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
     int length = socketData->spillLength;
+
+    //cout << "Spill length: " << length << endl;
+
+    //length = -1;
+    //while(length == -1) {
+
     if (socketData->ssl) {
-        length += SSL_read(socketData->ssl, src + socketData->spillLength, BUFFER_SIZE - socketData->spillLength);
+        int err = SSL_read(socketData->ssl, src + socketData->spillLength, BUFFER_SIZE - socketData->spillLength);
+
+        if (err == -1) {
+            cout << "ERROR reading!!" << endl;
+            return;
+        }
+
+        length += err;
     } else {
         length += recv(fd, src + socketData->spillLength, BUFFER_SIZE - socketData->spillLength, 0);
     }
 
-    //int SSL_read(SSL *ssl, void *buf, int num);
+    //}
+
+
 
     if (!(length - socketData->spillLength)) {
         socketData->server->disconnectionCallback(vp);
         Socket(p).close(true);
         return;
     }
+
+    cout << "[" << chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now() - upgradePoint).count();
+    cout << "] Recv: " << length << endl;
 
     // cork sends into one large package
 #ifdef __linux
@@ -693,6 +715,8 @@ void Server::onReadable(void *vp, int status, int events)
 
             int lastFin = socketData->fin;
             socketData->fin = fin(frame);
+
+            cout << "OpCode: " << (int) opCode(frame) << endl;
 
 #ifdef STRICT
             // close frame
@@ -852,7 +876,7 @@ void Server::onReadable(void *vp, int status, int events)
                                                  socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes);
 
             // did we close the socket using Socket.fail()?
-            if (uv_is_closing((uv_handle_t *) socket)) {
+            if (uv_is_closing((uv_handle_t *) p)) {
                 return;
             }
 
@@ -929,7 +953,11 @@ void Socket::write(char *data, size_t length, bool transferOwnership, void(*call
         }
 
         if (callback) {
-            callback(fd);
+            //callback(fd);
+            if (socketData->ssl) {
+                SSL_shutdown(socketData->ssl);
+            }
+            shutdown(fd, SHUT_WR);
         }
 
     } else {
@@ -939,6 +967,11 @@ void Socket::write(char *data, size_t length, bool transferOwnership, void(*call
 #else
         if (sent == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
 #endif
+
+            // assume send always works, always ssl!
+            goto queueIt;
+
+
             // error sending!
             if (transferOwnership) {
                 delete [] (data - sizeof(Message));
@@ -981,20 +1014,41 @@ void Socket::write(char *data, size_t length, bool transferOwnership, void(*call
                 do {
                     Message *messagePtr = socketData->messageQueue.front();
 
-                    ssize_t sent = ::send(fd, messagePtr->data, messagePtr->length, MSG_NOSIGNAL);
+                    ssize_t sent = 0;//::send(fd, messagePtr->data, messagePtr->length, MSG_NOSIGNAL);
+
+                    if (socketData->ssl) {
+                        sent = SSL_write(socketData->ssl, messagePtr->data, messagePtr->length);
+                    } else {
+                        sent = ::send(fd, messagePtr->data, messagePtr->length, MSG_NOSIGNAL);
+                    }
+
                     if (sent == (int) messagePtr->length) {
 
                         if (messagePtr->callback) {
-                            messagePtr->callback(fd);
+                            //messagePtr->callback(fd);
+                            if (socketData->ssl) {
+                                SSL_shutdown(socketData->ssl);
+                            }
+                            shutdown(fd, SHUT_WR);
                         }
 
                         socketData->messageQueue.pop();
                     } else {
+
+
+                        if (sent == -1) {
+                            cout << "SENT: " << sent << endl;
+                            uv_poll_start(handle, UV_READABLE, (uv_poll_cb) Server::onReadable);
+                            return;
+                        }
+
 #ifdef _WIN32
                         if (sent == -1 && WSAGetLastError() != WSAENOBUFS && WSAGetLastError() != WSAEWOULDBLOCK) {
 #else
                         if (sent == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
 #endif
+
+
 
                             // will this trigger a read with 0 length?
 
@@ -1075,6 +1129,8 @@ inline size_t formatMessage(char *dst, char *src, size_t length, OpCode opCode, 
 
 void Socket::close(bool force, unsigned short code, char *data, size_t length)
 {
+    cout << "Close, force: " << force << endl;
+
     uv_poll_t *p = (uv_poll_t *) socket;
     FD fd;
     uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
@@ -1107,6 +1163,9 @@ void Socket::close(bool force, unsigned short code, char *data, size_t length)
 
         // todo: non-strict behavior, empty the queue before sending
         // but then again we call it forced, so never mind!
+        if (socketData->ssl) {
+            SSL_free(socketData->ssl);
+        }
         ::close(fd);
         delete socketData;
     } else {
