@@ -81,6 +81,10 @@ wss.on('connection', (ws) => {
     ws.on('message', (message) => {
         ws.send(message, { binary: Buffer.isBuffer(message) });
     });
+
+    ws.on('error', function(e) {
+
+    });
 });
 
 httpsServer.listen(3000);

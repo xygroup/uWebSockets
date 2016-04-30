@@ -164,32 +164,34 @@ void close(const FunctionCallbackInfo<Value> &args)
 
 #include <unistd.h>
 
-/* we dup the fd, Node.js needs to destroy the passed socket */
+// modified by transfer
+SSL *ssl;
+int fd;
+
 void upgrade(const FunctionCallbackInfo<Value> &args)
 {
     uWS::Server *server = (uWS::Server *) args.Holder()->GetAlignedPointerFromInternalField(0);
-    NativeString nativeString(args[1]);
+    NativeString nativeString(args[0]);
 
-    SSL *ssl = nullptr;
-    if (args[2]->IsExternal()) {
-        ssl = (SSL *) args[2].As<External>()->Value();
+    // upgrade
+    server->upgrade(fd, nativeString.getData(), ssl, false, true);
+}
+
+void transfer(const FunctionCallbackInfo<Value> &args)
+{
+    if (args[1]->IsExternal()) {
+        ssl = (SSL *) args[1].As<External>()->Value();
 
         /* Node.js DestroySSL calls SSL_free */
         ssl->references++;
         /* Node.js want to delete its own BIO's */
-        SSL_get_rbio(ssl)->references++;
-        SSL_get_wbio(ssl)->references++;
+        //SSL_get_rbio(ssl)->references++;
+        //SSL_get_wbio(ssl)->references++;
     }
 
     // dup
-    int fd = args[0]->IntegerValue();
+    fd = args[0]->IntegerValue();
     fd = dup(fd);
-
-    // destroy
-    Local<Function>::Cast(args[3])->Call(args[4]->ToObject(), 0, nullptr);
-
-    // upgrade
-    server->upgrade(fd, nativeString.getData(), ssl, false, true);
 }
 
 void send(const FunctionCallbackInfo<Value> &args)
@@ -234,6 +236,7 @@ void Main(Local<Object> exports) {
     NODE_SET_PROTOTYPE_METHOD(tpl, "close", close);
     NODE_SET_PROTOTYPE_METHOD(tpl, "broadcast", broadcast);
     NODE_SET_PROTOTYPE_METHOD(tpl, "upgrade", upgrade);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "transfer", transfer);
 
     // C-like, todo: move to Socket object
     NODE_SET_PROTOTYPE_METHOD(tpl, "setData", setData);

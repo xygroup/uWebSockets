@@ -272,20 +272,16 @@ class Server extends EventEmitter {
             /* internal variables */
             sock.upgradeReq = request;
             callback(sock);
-
-            /* todo: reset connection handler when the upgrade queue is empty */
-            /* this will probably never be noticed as you don't mix upgrade handling */
         });
 
-        if (upgradeHead.length) {
-            console.log('ERROR UPGRADE HEAD!!!!');
-            throw new Error('UPGRADE HEAAD');
-        }
-
-        /* upgrades will be handled immediately */
-        this.nativeServer.upgrade(socket._handle.fd, request.headers['sec-websocket-key'], socket.ssl ? socket.ssl._external : null, socket.destroy, socket);
-
-	//console.log('Upgrade head: ' + upgradeHead.length);
+        this.nativeServer.transfer(socket._handle.fd, socket.ssl ? socket.ssl._external : null);
+        var nServer = this.nativeServer;
+        socket.on('close', function(error) {
+            if (!error) {
+                nServer.upgrade(request.headers['sec-websocket-key']);
+            }
+        });
+        socket.destroy();
     }
 }
 
