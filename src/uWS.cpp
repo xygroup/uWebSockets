@@ -1173,6 +1173,10 @@ void Socket::close(bool force, unsigned short code, char *data, size_t length)
         cout << "INFO: Graceful close: " << socket << endl;
     }
 
+    if (validPolls.find(socket) == validPolls.end()) {
+        cout << "ERROR: Already closed (top): " << socket << endl;
+    }
+
     uv_poll_t *p = (uv_poll_t *) socket;
     FD fd;
     uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
