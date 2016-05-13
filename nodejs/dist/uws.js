@@ -22,12 +22,13 @@ class Socket {
      * @param {Object} nativeSocket Socket instance
      * @param {Server} server Server instance
      */
-    constructor(nativeSocket, nativeServer) {
+    constructor(nativeSocket, nativeServer, validNativeSockets) {
         this.nativeSocket = nativeSocket;
         this.nativeServer = nativeServer;
         this.onmessage = noop;
         this.onclose = noop;
         this.upgradeReq = null;
+        this.validNativeSockets = validNativeSockets;
     }
 
     /**
@@ -122,6 +123,11 @@ class Socket {
      * @public
      */
     send(message, options, cb) {
+        if (this.validNativeSockets[this.nativeSocket] !== 'valid') {
+            console.log('ERROR: Invalid socket used in send');
+            process.exit(-1);
+        }
+
         /* ignore sends on closed sockets */
         if (typeof options === 'function') {
             cb = options;
@@ -142,6 +148,11 @@ class Socket {
      * @public
      */
     get _socket() {
+        if (this.validNativeSockets[this.nativeSocket] !== 'valid') {
+            console.log('ERROR: Invalid socket used in _socket');
+            process.exit(-1);
+        }
+
         return {
             remoteAddress: this.nativeServer.getAddress(this.nativeSocket),
             remotePort: this.nativeServer.getPort(this.nativeSocket)
@@ -154,6 +165,11 @@ class Socket {
      * @public
      */
     close(code, data) {
+        if (this.validNativeSockets[this.nativeSocket] !== 'valid') {
+            console.log('ERROR: Invalid socket used in close');
+            process.exit(-1);
+        }
+
         /* ignore close on closed sockets */
         if (!this.nativeSocket) return;
 
@@ -175,6 +191,8 @@ class Server extends EventEmitter {
         // can these be made private?
         this._upgradeReq = null;
         this._upgradeCallback = noop;
+
+        this.validNativeSockets = {};
 
         if (!options.noServer) {
             this.httpServer = options.server ? options.server : http.createServer((request, response) => {
@@ -228,6 +246,7 @@ class Server extends EventEmitter {
         }
 
         this.nativeServer.onDisconnection((nativeSocket, code, message, socket) => {
+            delete this.validNativeSockets[socket.nativeSocket];
             socket.nativeServer = socket.nativeSocket = null;
             socket.onclose(code, message);
             this.nativeServer.setData(nativeSocket);
@@ -238,7 +257,8 @@ class Server extends EventEmitter {
         });
 
         this.nativeServer.onConnection((nativeSocket) => {
-            const socket = new Socket(nativeSocket, this.nativeServer);
+            this.validNativeSockets[nativeSocket] = 'valid';
+            const socket = new Socket(nativeSocket, this.nativeServer, this.validNativeSockets);
             this.nativeServer.setData(nativeSocket, socket);
 
             socket.upgradeReq = this._upgradeReq;
@@ -294,6 +314,7 @@ class Server extends EventEmitter {
      * @public
      */
     close() {
+        this.validNativeSockets = {};
         this.nativeServer.close();
     }
 
