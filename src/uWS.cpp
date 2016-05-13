@@ -6,6 +6,12 @@ using namespace uWS;
 #include <algorithm>
 using namespace std;
 
+#define VALIDATION
+
+#ifdef VALIDATION
+std::map<void *, int> validPolls;
+#endif
+
 #ifndef __linux
 #define MSG_NOSIGNAL 0
 #else
@@ -355,6 +361,17 @@ void Server::upgradeHandler(Server *server)
 
         // this will modify the event loop of another thread
         uv_poll_t *clientPoll = new uv_poll_t;
+
+#ifdef VALIDATION
+        if (validPolls.find(clientPoll) != validPolls.end()) {
+            cout << "ERROR: Already opened: " << clientPoll << endl;
+            exit(-1);
+        } else {
+            validPolls[clientPoll] = 1;
+            cout << "INFO: Open: " << clientPoll << endl;
+        }
+#endif
+
         uv_poll_init_socket((uv_loop_t *) server->loop, clientPoll, get<0>(upgradeRequest));
         SocketData *socketData = new SocketData;
         socketData->server = server;
@@ -407,8 +424,11 @@ void Server::closeHandler(Server *server)
         });
     }
 
+    cout << "INFO: Closing server: " << server << endl;
     for (void *p = server->clients; p; p = ((SocketData *) ((uv_poll_t *) p)->data)->next) {
-        Socket(p).close(server->forceClose);
+        if (((SocketData *) ((uv_poll_t *) p)->data)->state != CLOSING || server->forceClose) {
+            Socket(p).close(server->forceClose);
+        }
     }
 }
 
@@ -928,6 +948,16 @@ void Server::onMessage(function<void(Socket, const char *, size_t, OpCode)> mess
     this->messageCallback = messageCallback;
 }
 
+Socket::Socket(void *p) : socket(p)
+{
+#ifdef VALIDATION
+    if (validPolls.find(socket) == validPolls.end()) {
+        cout << "ERROR: Constructing invalid or closed socket: " << socket << endl;
+        exit(-1);
+    }
+#endif
+}
+
 // async Unix send (has a Message struct in the start if transferOwnership)
 void Socket::write(char *data, size_t length, bool transferOwnership, void(*callback)(void *s))
 {
@@ -1136,13 +1166,19 @@ inline size_t formatMessage(char *dst, char *src, size_t length, OpCode opCode, 
 
 void Socket::close(bool force, unsigned short code, char *data, size_t length)
 {
+    // validation
+    if (force) {
+        cout << "INFO: Close: " << socket << endl;
+    } else {
+        cout << "INFO: Graceful close: " << socket << endl;
+    }
+
     uv_poll_t *p = (uv_poll_t *) socket;
     FD fd;
     uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
     SocketData *socketData = (SocketData *) p->data;
 
     if (socketData->state != CLOSING) {
-        socketData->state = CLOSING;
         if (socketData->prev == socketData->next) {
             socketData->server->clients = nullptr;
         } else {
@@ -1161,12 +1197,20 @@ void Socket::close(bool force, unsigned short code, char *data, size_t length)
     }
 
     if (force) {
+        // this one might call close itself!
         socketData->server->disconnectionCallback(socket, code, data, length);
 
         // delete all messages in queue
         while (!socketData->messageQueue.empty()) {
             socketData->messageQueue.pop();
         }
+
+#ifdef VALIDATION
+        if (!validPolls.erase(socket)) {
+            cout << "ERROR: Already closed: " << socket << endl;
+            exit(-1);
+        }
+#endif
 
         uv_poll_stop(p);
         uv_close((uv_handle_t *) p, [](uv_handle_t *handle) {
@@ -1187,30 +1231,36 @@ void Socket::close(bool force, unsigned short code, char *data, size_t length)
 
         delete socketData;
     } else {
-        // force close after 15 seconds
-        socketData->prev = new uv_timer_t;
-        uv_timer_init((uv_loop_t *) socketData->server->loop, (uv_timer_t *) socketData->prev);
-        ((uv_timer_t *) socketData->prev)->data = socket;
-        uv_timer_start((uv_timer_t *) socketData->prev, [](uv_timer_t *timer) {
-            Socket(timer->data).close(true, 1006);
-        }, 15000, 0);
+        if (socketData->state != CLOSING) {
+            socketData->state = CLOSING;
 
-        char *sendBuffer = socketData->server->sendBuffer;
-        if (code) {
-            length = min<size_t>(1024, length) + 2;
-            *((uint16_t *) &sendBuffer[length + 2]) = htons(code);
-            memcpy(&sendBuffer[length + 4], data, length - 2);
-        }
-        write((char *) sendBuffer, formatMessage(sendBuffer, &sendBuffer[length + 2], length, CLOSE, length), false, [](void *s) {
-            uv_poll_t *p = (uv_poll_t *) s;
-            FD fd;
-            uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
-            SocketData *socketData = (SocketData *) p->data;
-            if (socketData->ssl) {
-                SSL_shutdown(socketData->ssl);
+            // force close after 15 seconds
+            socketData->prev = new uv_timer_t;
+            uv_timer_init((uv_loop_t *) socketData->server->loop, (uv_timer_t *) socketData->prev);
+            ((uv_timer_t *) socketData->prev)->data = socket;
+            uv_timer_start((uv_timer_t *) socketData->prev, [](uv_timer_t *timer) {
+                Socket(timer->data).close(true, 1006);
+            }, 15000, 0);
+
+            char *sendBuffer = socketData->server->sendBuffer;
+            if (code) {
+                length = min<size_t>(1024, length) + 2;
+                *((uint16_t *) &sendBuffer[length + 2]) = htons(code);
+                memcpy(&sendBuffer[length + 4], data, length - 2);
             }
-            shutdown(fd, SHUT_WR);
-        });
+            write((char *) sendBuffer, formatMessage(sendBuffer, &sendBuffer[length + 2], length, CLOSE, length), false, [](void *s) {
+                uv_poll_t *p = (uv_poll_t *) s;
+                FD fd;
+                uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
+                SocketData *socketData = (SocketData *) p->data;
+                if (socketData->ssl) {
+                    SSL_shutdown(socketData->ssl);
+                }
+                shutdown(fd, SHUT_WR);
+            });
+        } else {
+            cout << "WARNING: Already gracefully closed: " << socket << endl;
+        }
     }
 }
 

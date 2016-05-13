@@ -6,6 +6,7 @@
 #include <string>
 #include <queue>
 #include <mutex>
+#include <map>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -39,7 +40,7 @@ class Socket {
     friend struct std::hash<uWS::Socket>;
 protected:
     void *socket;
-    Socket(void *p) : socket(p) {}
+    Socket(void *p);
     void write(char *data, size_t length, bool transferOwnership, void(*callback)(void *s) = nullptr);
 public:
     std::pair<char *, unsigned int> getAddress();
