@@ -55,6 +55,7 @@ struct WindowsInit {
 #include <openssl/ssl.h>
 
 #include <uv.h>
+#include <zlib.h>
 
 enum SendFlags {
     SND_CONTINUATION = 1,
@@ -130,6 +131,7 @@ struct SocketData {
     void *next = nullptr, *prev = nullptr;
     void *data = nullptr;
     SSL *ssl = nullptr;
+    z_stream *z = nullptr;
 
     // turns out these are very lightweight (in GCC)
     string buffer;
@@ -285,6 +287,32 @@ tuple<unsigned short, char *, size_t> parseCloseFrame(string &payload)
     return make_tuple(code, message, length);
 }
 
+void init_zstream(z_stream &zStream)
+{
+    zStream = {};
+    if (Z_OK != inflateInit2(&zStream, -15)) {
+        throw runtime_error("Zlib stream init failed");
+    }
+}
+
+// read 4 bytes, replace with tail, rewrite the 4 bytes!
+void inflate_zstream_src_tail_4(z_stream *z, char *src, size_t srcLength, char *dst, size_t &dstLength)
+{
+    unsigned char tail[4] = {0, 0, 255, 255};
+    memcpy(src + srcLength, tail, 4);
+    z->next_in = (unsigned char *) src;
+    z->avail_in = srcLength + 4;
+    z->avail_out = dstLength;
+    z->next_out = (unsigned char *) dst;
+
+    if (Z_OK != inflate(z, Z_NO_FLUSH)) {
+        throw runtime_error("Zlib inflate failed");
+        dstLength = 0;
+    } else {
+        dstLength = (dstLength - z->avail_out);
+    }
+}
+
 // default fragment handler
 void Server::internalFragment(Socket socket, const char *fragment, size_t length, OpCode opCode, bool fin, size_t remainingBytes)
 {
@@ -294,12 +322,18 @@ void Server::internalFragment(Socket socket, const char *fragment, size_t length
     // Text or binary
     if (opCode < 3) {
         if (!remainingBytes && fin && !socketData->buffer.length()) {
-            if (opCode == 1 && !Server::isValidUtf8((unsigned char *) fragment, length)) {
+            /*if (opCode == 1 && !Server::isValidUtf8((unsigned char *) fragment, length)) {
                 socket.close(true, 1006);
                 return;
-            }
+            }*/
 
-            socketData->server->messageCallback(socket, (char *) fragment, length, opCode);
+
+            size_t outputLength = 1024;
+            char output[outputLength];
+            inflate_zstream_src_tail_4(socketData->z, (char *) fragment, length, output, outputLength);
+
+
+            socketData->server->messageCallback(socket, (char *) output, outputLength, opCode);
         } else {
             socketData->buffer.append(fragment, length);
             if (!remainingBytes && fin) {
@@ -336,6 +370,8 @@ void Server::internalFragment(Socket socket, const char *fragment, size_t length
     }
 }
 
+#include <fstream>
+
 void Server::upgradeHandler(Server *server)
 {
     server->upgradeQueueMutex.lock();
@@ -350,7 +386,7 @@ void Server::upgradeHandler(Server *server)
         memcpy(shaInput, get<1>(upgradeRequest).c_str(), 24);
         unsigned char shaDigest[SHA_DIGEST_LENGTH];
         SHA1(shaInput, sizeof(shaInput) - 1, shaDigest);
-        char upgradeResponse[] = "HTTP/1.1 101 Switching Protocols\r\n"
+        char upgradeResponse[1024] = "HTTP/1.1 101 Switching Protocols\r\n"
                                  "Upgrade: websocket\r\n"
                                  "Connection: Upgrade\r\n"
                                  "Sec-WebSocket-Accept: XXXXXXXXXXXXXXXXXXXXXXXXXXXX\r\n"
@@ -363,6 +399,16 @@ void Server::upgradeHandler(Server *server)
         uv_poll_init_socket((uv_loop_t *) server->loop, clientPoll, get<0>(upgradeRequest));
         SocketData *socketData = new SocketData;
         socketData->server = server;
+
+        // add permessage-deflate negotiation response, create z stream according to this negotiation
+        if (get<3>(upgradeRequest).length()) {
+            cout << "Got extension string: [" << get<3>(upgradeRequest) << "]" << endl;
+            memcpy(upgradeResponse + 127, "Sec-WebSocket-Extensions: permessage-deflate\r\n\r\n\0", 512);
+
+
+            socketData->z = new z_stream{};
+            init_zstream(*socketData->z);
+        }
 
         socketData->ssl = (SSL *) get<2>(upgradeRequest);
         if (socketData->ssl) {
@@ -392,7 +438,7 @@ void Server::upgradeHandler(Server *server)
             server->clients = clientPoll;
         }
 
-        Socket(clientPoll).write(upgradeResponse, sizeof(upgradeResponse) - 1, false);
+        Socket(clientPoll).write(upgradeResponse, strlen(upgradeResponse)/*sizeof(upgradeResponse) - 1*/, false);
         server->connectionCallback(clientPoll);
     }
 
@@ -426,16 +472,11 @@ void Server::closeHandler(Server *server)
     }
 }
 
-void Server::upgrade(FD fd, const char *secKey, void *ssl, bool dupFd)
+void Server::upgrade(FD fd, const char *secKey, void *ssl, const char *extensions, size_t extensionsLength)
 {
-    // if the socket is owned by another environment we can dup and close
-    if (dupFd) {
-        fd = dup(fd);
-    }
-
     // add upgrade request to the queue
     upgradeQueueMutex.lock();
-    upgradeQueue.push(make_tuple(fd, string(secKey, 24), ssl));
+    upgradeQueue.push(make_tuple(fd, string(secKey, 24), ssl, string(extensions, extensionsLength)));
     upgradeQueueMutex.unlock();
 
     if (master) {
@@ -741,9 +782,15 @@ void Server::onReadable(void *vp, int status, int events)
             int lastFin = socketData->fin;
             socketData->fin = fin(frame);
 
+            // compressed frame?
+            if (rsv1(frame)) {
+                cout << "Received compressed frame" << endl;
+            }
+
+
 #ifdef STRICT
             // invalid reserved bits
-            if (rsv1(frame) || rsv2(frame) || rsv3(frame)) {
+            if (/*rsv1(frame) || */rsv2(frame) || rsv3(frame)) {
                 Socket(p).close(true, 1006);
                 return;
             }

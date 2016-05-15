@@ -87,7 +87,7 @@ private:
     int port;
 
     // upgrade queue
-    std::queue<std::tuple<FD, std::string, void *>> upgradeQueue;
+    std::queue<std::tuple<FD, std::string, void *, std::string>> upgradeQueue;
     std::mutex upgradeQueueMutex;
     static void upgradeHandler(Server *server);
     static void closeHandler(Server *server);
@@ -109,7 +109,7 @@ public:
 
     // thread safe (should have thread-unsafe counterparts)
     void close(bool force = false);
-    void upgrade(FD fd, const char *secKey, void *ssl = nullptr, bool dupFd = false);
+    void upgrade(FD fd, const char *secKey, void *ssl = nullptr, const char *extensions = nullptr, size_t extensionsLength = 0);
 };
 
 }
