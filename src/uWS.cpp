@@ -132,6 +132,7 @@ struct SocketData {
     void *data = nullptr;
     SSL *ssl = nullptr;
     z_stream *z = nullptr;
+    bool compressed;
 
     // turns out these are very lightweight (in GCC)
     string buffer;
@@ -336,7 +337,7 @@ void inflate_zstream_src(z_stream *z, char *src, size_t srcLength, char *dst, si
 }
 
 // default fragment handler
-void Server::internalFragment(Socket socket, const char *fragment, size_t length, OpCode opCode, bool fin, size_t remainingBytes)
+void Server::internalFragment(Socket socket, const char *fragment, size_t length, OpCode opCode, bool fin, size_t remainingBytes, bool compressed)
 {
     uv_poll_t *p = (uv_poll_t *) socket.socket;
     SocketData *socketData = (SocketData *) p->data;
@@ -344,35 +345,59 @@ void Server::internalFragment(Socket socket, const char *fragment, size_t length
     // Text or binary
     if (opCode < 3) {
         if (!remainingBytes && fin && !socketData->buffer.length()) {
-            /*if (opCode == 1 && !Server::isValidUtf8((unsigned char *) fragment, length)) {
-                socket.close(true, 1006);
-                return;
-            }*/
 
+            size_t outputLength = length;
+            if (compressed) {
+                outputLength = BUFFER_SIZE;
+                inflate_zstream_src_tail_4(socketData->z, (char *) fragment, length, socketData->server->compressionBuffer, outputLength);
 
-            size_t outputLength = BUFFER_SIZE;
-            inflate_zstream_src_tail_4(socketData->z, (char *) fragment, length, socketData->server->compressionBuffer, outputLength);
+                if (opCode == 1 && !Server::isValidUtf8((unsigned char *) socketData->server->compressionBuffer, outputLength)) {
+                    socket.close(true, 1006);
+                    return;
+                }
 
-            socketData->server->messageCallback(socket, socketData->server->compressionBuffer, outputLength, opCode);
+                socketData->server->messageCallback(socket, socketData->server->compressionBuffer, outputLength, opCode);
+            } else {
+
+                if (opCode == 1 && !Server::isValidUtf8((unsigned char *) fragment, length)) {
+                    socket.close(true, 1006);
+                    return;
+                }
+
+                socketData->server->messageCallback(socket, fragment, length, opCode);
+            }
+
         } else {
             socketData->buffer.append(fragment, length);
             if (!remainingBytes && fin) {
 
-                // Chapter 6
-                /*if (opCode == 1 && !Server::isValidUtf8((unsigned char *) socketData->buffer.c_str(), socketData->buffer.length())) {
-                    socket.close(true, 1006);
-                    return;
-                }*/
 
-                unsigned char tail[4] = {0, 0, 255, 255};
-                socketData->buffer.append(string((char *) tail, 4));
+                if (compressed) {
 
-                size_t outputLength = BUFFER_SIZE;
-                inflate_zstream_src(socketData->z, (char *) socketData->buffer.c_str(), socketData->buffer.length(), socketData->server->compressionBuffer, outputLength);
+                    unsigned char tail[4] = {0, 0, 255, 255};
+                    socketData->buffer.append(string((char *) tail, 4));
 
-                socketData->server->messageCallback(socket, socketData->server->compressionBuffer, outputLength, opCode);
+                    size_t outputLength = BUFFER_SIZE;
+                    inflate_zstream_src(socketData->z, (char *) socketData->buffer.c_str(), socketData->buffer.length(), socketData->server->compressionBuffer, outputLength);
 
-                //socketData->server->messageCallback(socket, (char *) socketData->buffer.c_str(), socketData->buffer.length(), opCode);
+                    /*if (opCode == 1 && !Server::isValidUtf8((unsigned char *) socketData->server->compressionBuffer, outputLength)) {
+                        socket.close(true, 1006);
+                        return;
+                    }*/
+
+
+                    socketData->server->messageCallback(socket, socketData->server->compressionBuffer, outputLength, opCode);
+                } else {
+
+                    if (opCode == 1 && !Server::isValidUtf8((unsigned char *) socketData->buffer.c_str(), socketData->buffer.length())) {
+                        socket.close(true, 1006); // needs to also clear buffer!
+                        return;
+                    }
+
+
+                    socketData->server->messageCallback(socket, socketData->buffer.c_str(), socketData->buffer.length(), opCode);
+                }
+
                 socketData->buffer.clear();
             }
         }
@@ -571,14 +596,14 @@ struct Parser {
 
         unmask(src, src, headerLength - 4, headerLength, length);
         socketData->server->fragmentCallback(socket, src, length - headerLength,
-                                             socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes);
+                                             socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes, socketData->compressed);
     }
 
     template <typename T>
     static inline int consumeCompleteMessage(int &length, const int headerLength, T fullPayloadLength, SocketData *socketData, char **src, frameFormat &frame, void *socket)
     {
         unmask(*src, *src, headerLength - 4, headerLength, fullPayloadLength);
-        socketData->server->fragmentCallback(socket, *src, fullPayloadLength, socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0);
+        socketData->server->fragmentCallback(socket, *src, fullPayloadLength, socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->compressed);
 
         // did we close the socket using Socket.fail()?
         if (uv_is_closing((uv_handle_t *) socket) || socketData->state == CLOSING) {
@@ -810,15 +835,15 @@ void Server::onReadable(void *vp, int status, int events)
             int lastFin = socketData->fin;
             socketData->fin = fin(frame);
 
-            // compressed frame?
-            if (rsv1(frame)) {
-                //cout << "Received compressed frame" << endl;
+            if (opCode(frame) != 0) {
+                socketData->compressed = rsv1(frame);
             }
 
+            //cout << "RSV1: " << rsv1(frame) << ", opCode: " << (int) opCode(frame) << endl;
 
 #ifdef STRICT
             // invalid reserved bits
-            if (/*rsv1(frame) || */rsv2(frame) || rsv3(frame)) {
+            if ((rsv1(frame) && !socketData->z) || rsv2(frame) || rsv3(frame)) {
                 Socket(p).close(true, 1006);
                 return;
             }
@@ -939,7 +964,7 @@ void Server::onReadable(void *vp, int status, int events)
             }
 
             socketData->server->fragmentCallback(p, (const char *) src, socketData->remainingBytes,
-                                                 socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0);
+                                                 socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->compressed);
 
             // did we close the socket using Socket.fail()?
             if (uv_is_closing((uv_handle_t *) p) || socketData->state == CLOSING) {
@@ -964,7 +989,7 @@ void Server::onReadable(void *vp, int status, int events)
             socketData->remainingBytes -= length;
 
             socketData->server->fragmentCallback(p, (const char *) src, length,
-                                                 socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes);
+                                                 socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes, socketData->compressed);
 
             // did we close the socket using Socket.fail()?
             if (uv_is_closing((uv_handle_t *) p) || socketData->state == CLOSING) {
@@ -992,7 +1017,7 @@ void Server::onReadable(void *vp, int status, int events)
 #endif
 }
 
-void Server::onFragment(void (*fragmentCallback)(Socket, const char *, size_t, OpCode, bool, size_t))
+void Server::onFragment(void (*fragmentCallback)(Socket, const char *, size_t, OpCode, bool, size_t, bool))
 {
     this->fragmentCallback = fragmentCallback;
 }

@@ -64,14 +64,14 @@ private:
     static void onAcceptable(void *vp, int status, int events);
 
     static void internalHTTP(Request &request);
-    static void internalFragment(Socket socket, const char *fragment, size_t length, OpCode opCode, bool fin, size_t remainingBytes);
+    static void internalFragment(Socket socket, const char *fragment, size_t length, OpCode opCode, bool fin, size_t remainingBytes, bool compressed);
 
     // external callbacks
     std::function<void(FD, const char *)> upgradeCallback;
     std::function<void(Socket)> connectionCallback;
     std::function<void(Socket, int code, char *message, size_t length)> disconnectionCallback;
     std::function<void(Socket, const char *, size_t, OpCode)> messageCallback;
-    void (*fragmentCallback)(Socket, const char *, size_t, OpCode, bool, size_t);
+    void (*fragmentCallback)(Socket, const char *, size_t, OpCode, bool, size_t, bool);
 
     // buffers
     char *receiveBuffer, *sendBuffer, *compressionBuffer;
@@ -101,7 +101,7 @@ public:
     void onUpgrade(std::function<void(FD, const char *)> upgradeCallback);
     void onConnection(std::function<void(Socket)> connectionCallback);
     void onDisconnection(std::function<void(Socket, int code, char *message, size_t length)> disconnectionCallback);
-    void onFragment(void (*fragmentCallback)(Socket, const char *, size_t, OpCode, bool, size_t));
+    void onFragment(void (*fragmentCallback)(Socket, const char *, size_t, OpCode, bool, size_t, bool));
     void onMessage(std::function<void(Socket, const char *, size_t, OpCode)> messageCallback);
     void run();
     void broadcast(char *data, size_t length, OpCode opCode);
