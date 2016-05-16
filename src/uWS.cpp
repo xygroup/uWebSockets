@@ -179,6 +179,8 @@ Server::Server(int port, bool master, string path) : port(port), master(master),
     // we need 4 bytes (or 3 at least) outside for unmasking
     receiveBuffer = (char *) new uint32_t[BUFFER_SIZE / 4 + 6];
 
+    compressionBuffer = new char[BUFFER_SIZE];
+
     sendBuffer = new char[SHORT_SEND];
 
     // set default fragment handler
@@ -298,6 +300,8 @@ void init_zstream(z_stream &zStream)
 // read 4 bytes, replace with tail, rewrite the 4 bytes!
 void inflate_zstream_src_tail_4(z_stream *z, char *src, size_t srcLength, char *dst, size_t &dstLength)
 {
+    unsigned char old_tail[4];
+    memcpy(old_tail, src + srcLength, 4);
     unsigned char tail[4] = {0, 0, 255, 255};
     memcpy(src + srcLength, tail, 4);
     z->next_in = (unsigned char *) src;
@@ -306,6 +310,24 @@ void inflate_zstream_src_tail_4(z_stream *z, char *src, size_t srcLength, char *
     z->next_out = (unsigned char *) dst;
 
     if (Z_OK != inflate(z, Z_NO_FLUSH)) {
+        throw runtime_error("Zlib inflate failed");
+        dstLength = 0;
+    } else {
+        dstLength = (dstLength - z->avail_out);
+    }
+
+    memcpy(src + srcLength, old_tail, 4);
+}
+
+void inflate_zstream_src(z_stream *z, char *src, size_t srcLength, char *dst, size_t &dstLength)
+{
+    z->next_in = (unsigned char *) src;
+    z->avail_in = srcLength;
+    z->avail_out = dstLength;
+    z->next_out = (unsigned char *) dst;
+
+    if (Z_OK != inflate(z, Z_NO_FLUSH)) {
+        cout << z->msg << endl;
         throw runtime_error("Zlib inflate failed");
         dstLength = 0;
     } else {
@@ -328,23 +350,29 @@ void Server::internalFragment(Socket socket, const char *fragment, size_t length
             }*/
 
 
-            size_t outputLength = 1024;
-            char output[outputLength];
-            inflate_zstream_src_tail_4(socketData->z, (char *) fragment, length, output, outputLength);
+            size_t outputLength = BUFFER_SIZE;
+            inflate_zstream_src_tail_4(socketData->z, (char *) fragment, length, socketData->server->compressionBuffer, outputLength);
 
-
-            socketData->server->messageCallback(socket, (char *) output, outputLength, opCode);
+            socketData->server->messageCallback(socket, socketData->server->compressionBuffer, outputLength, opCode);
         } else {
             socketData->buffer.append(fragment, length);
             if (!remainingBytes && fin) {
 
                 // Chapter 6
-                if (opCode == 1 && !Server::isValidUtf8((unsigned char *) socketData->buffer.c_str(), socketData->buffer.length())) {
+                /*if (opCode == 1 && !Server::isValidUtf8((unsigned char *) socketData->buffer.c_str(), socketData->buffer.length())) {
                     socket.close(true, 1006);
                     return;
-                }
+                }*/
 
-                socketData->server->messageCallback(socket, (char *) socketData->buffer.c_str(), socketData->buffer.length(), opCode);
+                unsigned char tail[4] = {0, 0, 255, 255};
+                socketData->buffer.append(string((char *) tail, 4));
+
+                size_t outputLength = BUFFER_SIZE;
+                inflate_zstream_src(socketData->z, (char *) socketData->buffer.c_str(), socketData->buffer.length(), socketData->server->compressionBuffer, outputLength);
+
+                socketData->server->messageCallback(socket, socketData->server->compressionBuffer, outputLength, opCode);
+
+                //socketData->server->messageCallback(socket, (char *) socketData->buffer.c_str(), socketData->buffer.length(), opCode);
                 socketData->buffer.clear();
             }
         }
@@ -784,7 +812,7 @@ void Server::onReadable(void *vp, int status, int events)
 
             // compressed frame?
             if (rsv1(frame)) {
-                cout << "Received compressed frame" << endl;
+                //cout << "Received compressed frame" << endl;
             }
 
 

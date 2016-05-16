@@ -74,8 +74,8 @@ private:
     void (*fragmentCallback)(Socket, const char *, size_t, OpCode, bool, size_t);
 
     // buffers
-    char *receiveBuffer, *sendBuffer;
-    static const int BUFFER_SIZE = 307200,
+    char *receiveBuffer, *sendBuffer, *compressionBuffer;
+    static const int BUFFER_SIZE = 32 * 1024 * 1024,//307200,
                      SHORT_SEND = 4096;
 
     // accept poll
