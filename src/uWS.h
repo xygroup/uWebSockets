@@ -38,9 +38,9 @@ enum Options : int {
 };
 
 struct Address {
-	unsigned int port;
-	char *address;
-	const char *family;
+    unsigned int port;
+    char *address;
+    const char *family;
 };
 
 struct Parser;
@@ -51,8 +51,8 @@ template <bool IsServer>
 class Socket {
     friend struct Parser;
     template <bool IsServer2> friend class Agent;
-	friend class Server;
-	friend class Client;
+    friend class Server;
+    friend class Client;
     friend struct std::hash<uWS::Socket<IsServer>>;
 protected:
     void *socket;
@@ -77,8 +77,8 @@ class Agent
 {
     friend struct Parser;
     template <bool IsServer2> friend class Socket;
-	friend class Server;
-	friend class Client;
+    friend class Server;
+    friend class Client;
 protected:
     // internal callbacks
     static void onReadable(void *vp, int status, int events);
@@ -126,13 +126,13 @@ class Server : public Agent<true>
 {
     friend struct Parser;
     friend class Socket<true>;
-	// uWS:: required here because of bug in gcc: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52625
-	template <bool IsServer> friend class uWS::Agent;
+    // uWS:: required here because of bug in gcc: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52625
+    template <bool IsServer> friend class uWS::Agent;
 private:
     static void onAcceptable(void *vp, int status, int events);
 
-	char *upgradeResponse;
-	void *upgradeAsync;
+    char *upgradeResponse;
+    void *upgradeAsync;
 
     // accept poll
     void *server = nullptr;
@@ -158,8 +158,8 @@ class Client : public Agent<false>
 {
     friend struct Parser;
     friend class Socket<false>;
-	// uWS:: required here because of bug in gcc: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52625
-	template <bool IsServer> friend class uWS::Agent;
+    // uWS:: required here because of bug in gcc: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52625
+    template <bool IsServer> friend class uWS::Agent;
 private:
     std::function<void()> connectionFailureCallback;
 
@@ -169,7 +169,7 @@ public:
     Client(const Client &client) = delete;
     Client &operator=(const Client &client) = delete;
     void onConnectionFailure(std::function<void()> connectionCallback);
-	void connect(const std::string &host, int port);
+    void connect(const std::string &host, int port);
 };
 
 }

@@ -560,11 +560,11 @@ template <bool IsServer>
 void Agent<IsServer>::closeHandler(Agent *agent)
 {
     if (!agent->master) {
-		if (IsServer) {
-			uv_close((uv_handle_t *) reinterpret_cast<Server*>(agent)->upgradeAsync, [](uv_handle_t *a) {
-				delete (uv_async_t *) a;
-			});
-		}
+        if (IsServer) {
+            uv_close((uv_handle_t *) reinterpret_cast<Server*>(agent)->upgradeAsync, [](uv_handle_t *a) {
+                delete (uv_async_t *) a;
+            });
+        }
 
         uv_close((uv_handle_t *) agent->closeAsync, [](uv_handle_t *a) {
             delete (uv_async_t *) a;
@@ -572,7 +572,7 @@ void Agent<IsServer>::closeHandler(Agent *agent)
     }
 
     if (IsServer && ((Server *) agent)->server) {
-		Server *agentS = reinterpret_cast<Server*>(agent);
+        Server *agentS = reinterpret_cast<Server*>(agent);
         FD listenFd;
         uv_fileno((uv_handle_t *) agentS->server, (uv_os_fd_t *) &listenFd);
         ::close(listenFd);
@@ -647,29 +647,29 @@ struct Parser {
         socketData->state = READ_MESSAGE;
         socketData->remainingBytes = fullPayloadLength - length + headerLength;
 
-		if (IsServer) {
-			memcpy(socketData->mask, src + headerLength - 4, 4);
-			unmask_imprecise(src, src + headerLength, socketData->mask, length);
-			rotate_mask(4 - (length - headerLength) % 4, socketData->mask);
-			socketData->agent->fragmentCallback(socket, src, length - headerLength,
-												 socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes, socketData->pmd && socketData->pmd->compressedFrame);
-		}
-		else
-		{
-			socketData->agent->fragmentCallback(socket, src + headerLength, length - headerLength,
-												 socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes, socketData->pmd && socketData->pmd->compressedFrame);
-		}
+        if (IsServer) {
+            memcpy(socketData->mask, src + headerLength - 4, 4);
+            unmask_imprecise(src, src + headerLength, socketData->mask, length);
+            rotate_mask(4 - (length - headerLength) % 4, socketData->mask);
+            socketData->agent->fragmentCallback(socket, src, length - headerLength,
+                                                 socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes, socketData->pmd && socketData->pmd->compressedFrame);
+        }
+        else
+        {
+            socketData->agent->fragmentCallback(socket, src + headerLength, length - headerLength,
+                                                 socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes, socketData->pmd && socketData->pmd->compressedFrame);
+        }
     }
 
     template <bool IsServer, typename T>
     static inline int consumeCompleteMessage(int &length, const int headerLength, T fullPayloadLength, SocketData<IsServer> *socketData, char **src, frameFormat &frame, void *socket)
     {
-		if (IsServer) {
-			unmask_imprecise_copy_mask(*src, *src + headerLength, *src + headerLength - 4, fullPayloadLength);
-			socketData->agent->fragmentCallback(socket, *src, fullPayloadLength, socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->pmd && socketData->pmd->compressedFrame);
-		}
-		else
-			socketData->agent->fragmentCallback(socket, *src + headerLength, fullPayloadLength, socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->pmd && socketData->pmd->compressedFrame);
+        if (IsServer) {
+            unmask_imprecise_copy_mask(*src, *src + headerLength, *src + headerLength - 4, fullPayloadLength);
+            socketData->agent->fragmentCallback(socket, *src, fullPayloadLength, socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->pmd && socketData->pmd->compressedFrame);
+        }
+        else
+            socketData->agent->fragmentCallback(socket, *src + headerLength, fullPayloadLength, socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->pmd && socketData->pmd->compressedFrame);
 
 
         if (uv_is_closing((uv_handle_t *) socket) || socketData->state == CLOSING) {
@@ -686,13 +686,13 @@ struct Parser {
         return 0;
     }
 
-	template <bool IsServer>
+    template <bool IsServer>
     static inline void consumeEntireBuffer(char *src, int length, SocketData<IsServer> *socketData, void *p)
     {
-		if (IsServer) {
-			int n = (length >> 2) + bool(length % 4); // this should always overwrite!
-			unmask_inplace(src, src + n * 4, socketData->mask);
-		}
+        if (IsServer) {
+            int n = (length >> 2) + bool(length % 4); // this should always overwrite!
+            unmask_inplace(src, src + n * 4, socketData->mask);
+        }
 
         socketData->remainingBytes -= length;
         socketData->agent->fragmentCallback(p, (const char *) src, length,
@@ -714,16 +714,16 @@ struct Parser {
         }
     }
 
-	template <bool IsServer>
+    template <bool IsServer>
     static inline int consumeCompleteTail(char **src, int &length, SocketData<IsServer> *socketData, void *p)
     {
-		if (IsServer) {
-			int n = (socketData->remainingBytes >> 2);
-			unmask_inplace(*src, *src + n * 4, socketData->mask);
-			for (int i = 0, s = socketData->remainingBytes % 4; i < s; i++) {
-				(*src)[n * 4 + i] ^= socketData->mask[i];
-			}
-		}
+        if (IsServer) {
+            int n = (socketData->remainingBytes >> 2);
+            unmask_inplace(*src, *src + n * 4, socketData->mask);
+            for (int i = 0, s = socketData->remainingBytes % 4; i < s; i++) {
+                (*src)[n * 4 + i] ^= socketData->mask[i];
+            }
+        }
 
         socketData->agent->fragmentCallback(p, (const char *) *src, socketData->remainingBytes,
                                              socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->pmd && socketData->pmd->compressedFrame);
@@ -1342,16 +1342,16 @@ template <bool IsServer>
 inline size_t formatMessage(char *dst, char *src, size_t length, OpCode opCode, size_t reportedLength)
 {
     size_t messageLength;
-	size_t headerLength;
+    size_t headerLength;
     if (reportedLength < 126) {
-		headerLength = 2;
+        headerLength = 2;
         dst[1] = reportedLength;
     } else if (reportedLength <= UINT16_MAX) {
-		headerLength = 4;
+        headerLength = 4;
         dst[1] = 126;
         *((uint16_t *) &dst[2]) = htons(reportedLength);
     } else {
-		headerLength = 10;
+        headerLength = 10;
         dst[1] = 127;
         *((uint64_t *) &dst[2]) = htobe64(reportedLength);
     }
@@ -1362,22 +1362,22 @@ inline size_t formatMessage(char *dst, char *src, size_t length, OpCode opCode, 
         dst[0] |= opCode;
     }
 
-	char mask[4];
-	if (!IsServer) {
-		dst[1] |= 0x80;
-		for (int i = 0; i < 4; ++i) {
-			mask[i] = rand();
-			dst[headerLength + i] = mask[i];
-		}
-		headerLength += 4;
-	}
+    char mask[4];
+    if (!IsServer) {
+        dst[1] |= 0x80;
+        for (int i = 0; i < 4; ++i) {
+            mask[i] = rand();
+            dst[headerLength + i] = mask[i];
+        }
+        headerLength += 4;
+    }
 
-	messageLength = headerLength + length;
-	memcpy(dst + headerLength, src, length);
+    messageLength = headerLength + length;
+    memcpy(dst + headerLength, src, length);
 
-	if (!IsServer) {
+    if (!IsServer) {
         Parser::unmask_inplace(dst + headerLength, dst + headerLength + length, mask);
-	}
+    }
     return messageLength;
 }
 template size_t formatMessage<true>(char *dst, char *src, size_t length, OpCode opCode, size_t reportedLength);
@@ -1591,10 +1591,10 @@ template class uWS::Agent<false>;
 bool firstClient = true;
 Client::Client(bool master, int options, int maxPayload) : Agent<false>(master, options, maxPayload)
 {
-	if (firstClient) {
-		srand(time(nullptr));
-		firstClient = false;
-	}
+    if (firstClient) {
+        srand(time(nullptr));
+        firstClient = false;
+    }
     onConnection([](ClientSocket socket) {});
     onConnectionFailure([]() {});
     onDisconnection([](ClientSocket socket, int code, char *message, size_t length) {});
@@ -1633,11 +1633,11 @@ Client::~Client()
 }
 
 struct ConnectData {
-	string host;
-	int port;
-	Client *client;
+    string host;
+    int port;
+    Client *client;
 
-	ConnectData(Client *client, string host, int port) : client(client), host(host), port(port) {};
+    ConnectData(Client *client, string host, int port) : client(client), host(host), port(port) {};
 };
 
 // move this into Parser.cpp
@@ -1657,98 +1657,98 @@ const string HTTP_NEWLINE = "\r\n";
 const string HTTP_END_MESSAGE = "\r\n\r\n";
 void Client::connect(const string &host, int port)
 {
-	struct sockaddr_in dest = { 0 };
-	dest.sin_family = AF_INET;
-	dest.sin_port = htons(port);
-	inet_aton(host.c_str(), &(dest.sin_addr));
+    struct sockaddr_in dest = { 0 };
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(port);
+    inet_aton(host.c_str(), &(dest.sin_addr));
 
-	FD fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (fd < 0)
-		connectionFailureCallback();
+    FD fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        connectionFailureCallback();
 
-	uv_poll_t *connectHandle = new uv_poll_t;
-	connectHandle->data = new ConnectData(this, host, port);
-	uv_poll_init_socket((uv_loop_t *) loop, connectHandle, fd);
-	uv_poll_start(connectHandle, UV_WRITABLE, [](uv_poll_t *p, int status, int events) {
-		FD fd;
-		uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
-		ConnectData *cd = (ConnectData *) p->data;
-		Client *client = cd->client;
-		uv_poll_stop(p);
-	
-		p->data = new ClientHTTPData(client);
-		uv_poll_start(p, UV_READABLE, [](uv_poll_t *p, int status, int events) {
-			if (status < 0) {
-				// error read
-			}
+    uv_poll_t *connectHandle = new uv_poll_t;
+    connectHandle->data = new ConnectData(this, host, port);
+    uv_poll_init_socket((uv_loop_t *) loop, connectHandle, fd);
+    uv_poll_start(connectHandle, UV_WRITABLE, [](uv_poll_t *p, int status, int events) {
+        FD fd;
+        uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
+        ConnectData *cd = (ConnectData *) p->data;
+        Client *client = cd->client;
+        uv_poll_stop(p);
+    
+        p->data = new ClientHTTPData(client);
+        uv_poll_start(p, UV_READABLE, [](uv_poll_t *p, int status, int events) {
+            if (status < 0) {
+                // error read
+            }
 
-			FD fd;
-			uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
-			ClientHTTPData *httpData = (ClientHTTPData *) p->data;
-			Client* client = httpData->client;
-			int length = recv(fd, httpData->client->receiveBuffer, BUFFER_SIZE, 0);
-			httpData->headerBuffer.append(httpData->client->receiveBuffer, length);
+            FD fd;
+            uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
+            ClientHTTPData *httpData = (ClientHTTPData *) p->data;
+            Client* client = httpData->client;
+            int length = recv(fd, httpData->client->receiveBuffer, BUFFER_SIZE, 0);
+            httpData->headerBuffer.append(httpData->client->receiveBuffer, length);
 
-			// did we read the complete header?
-			if (httpData->headerBuffer.find(HTTP_END_MESSAGE) != string::npos) {
-				// our part is done here
-				uv_poll_stop(p);
-				delete httpData;
+            // did we read the complete header?
+            if (httpData->headerBuffer.find(HTTP_END_MESSAGE) != string::npos) {
+                // our part is done here
+                uv_poll_stop(p);
+                delete httpData;
 
-				// TODO: Validate response
+                // TODO: Validate response
 
-				// We've received the response, so upgrade to websocket
-				SocketData<false> *socketData = new SocketData<false>;
-				socketData->agent = client;
+                // We've received the response, so upgrade to websocket
+                SocketData<false> *socketData = new SocketData<false>;
+                socketData->agent = client;
 
-				p->data = socketData;
-				uv_poll_start(p, UV_READABLE, (uv_poll_cb) onReadable);
+                p->data = socketData;
+                uv_poll_start(p, UV_READABLE, (uv_poll_cb) onReadable);
 
-				// add this poll to the list
-				if (!client->clients) {
-					client->clients = p;
-				} else {
-					SocketData<false> *tailData = (SocketData<false> *) ((uv_poll_t *) client->clients)->data;
-					tailData->prev = p;
-					socketData->next = client->clients;
-					client->clients = p;
-				}
+                // add this poll to the list
+                if (!client->clients) {
+                    client->clients = p;
+                } else {
+                    SocketData<false> *tailData = (SocketData<false> *) ((uv_poll_t *) client->clients)->data;
+                    tailData->prev = p;
+                    socketData->next = client->clients;
+                    client->clients = p;
+                }
 
-				client->connectionCallback(p);
-			} else {
-				// todo: start timer to time out the connection!
-			}
-		});
+                client->connectionCallback(p);
+            } else {
+                // todo: start timer to time out the connection!
+            }
+        });
 
-		// Generate random bytes as websocket key
-		static const char palette[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-		// We are generating the base64 string directly, so 16 bytes = 24 bytes in base 64
-		char key [24];
-		for (size_t i = 0; i < 21; ++i) {
-			key[i] = palette[rand() % 64];
-		}
-		// Last char can only have first 2 bits set
-		key[21] = palette[(rand() % 64) | 0x30];
-		// Need 2 padding chars so that numChars * 6 is divisble by 8
-		key[22] = key[23] = '=';
+        // Generate random bytes as websocket key
+        static const char palette[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        // We are generating the base64 string directly, so 16 bytes = 24 bytes in base 64
+        char key [24];
+        for (size_t i = 0; i < 21; ++i) {
+            key[i] = palette[rand() % 64];
+        }
+        // Last char can only have first 2 bits set
+        key[21] = palette[(rand() % 64) | 0x30];
+        // Need 2 padding chars so that numChars * 6 is divisble by 8
+        key[22] = key[23] = '=';
 
-		// Construct message
-		string msg = "GET / HTTP/1.1" + HTTP_NEWLINE +
-			"Upgrade: WebSocket" + HTTP_NEWLINE +
-			"Connection: Upgrade" + HTTP_NEWLINE +
-			"Host: " + cd->host + ":" + to_string(cd->port) + HTTP_NEWLINE +
-			"Sec-WebSocket-Key: " + string(key, 24) + HTTP_NEWLINE +
-			"Sec-WebSocket-Version: 13" + HTTP_END_MESSAGE;
-		//cout << "First message: " << msg << endl;
+        // Construct message
+        string msg = "GET / HTTP/1.1" + HTTP_NEWLINE +
+            "Upgrade: WebSocket" + HTTP_NEWLINE +
+            "Connection: Upgrade" + HTTP_NEWLINE +
+            "Host: " + cd->host + ":" + to_string(cd->port) + HTTP_NEWLINE +
+            "Sec-WebSocket-Key: " + string(key, 24) + HTTP_NEWLINE +
+            "Sec-WebSocket-Version: 13" + HTTP_END_MESSAGE;
+        //cout << "First message: " << msg << endl;
 
-		// Actually write the message
-		int nWrite = write(fd, msg.c_str(), msg.length());
-		if (nWrite < 0) 
-			client->connectionFailureCallback();
-	});
+        // Actually write the message
+        int nWrite = write(fd, msg.c_str(), msg.length());
+        if (nWrite < 0) 
+            client->connectionFailureCallback();
+    });
 
-	if (::connect(fd, (struct sockaddr *) &dest, sizeof(dest)) < 0 && errno != EINPROGRESS)
-		connectionFailureCallback();
+    if (::connect(fd, (struct sockaddr *) &dest, sizeof(dest)) < 0 && errno != EINPROGRESS)
+        connectionFailureCallback();
 }
 
 void Client::onConnectionFailure(function<void()> connectionFailureCallback)
