@@ -5,7 +5,7 @@
 #include <thread>
 using namespace std;
 
-#include "uWS.h"
+#include "uWebSockets/uWS.h"
 using namespace uWS;
 
 int connections = 0;

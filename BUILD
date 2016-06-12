@@ -1,7 +1,7 @@
-# You can use this library as: #include "uWebSockets/uWebSockets.h"
+# You can use this library as: #include "uWebSockets/uWS.h"
 cc_inc_library(
     name = "uWebSockets",
-    hdrs = ["src/uWebSockets.h"],
+    hdrs = ["src/uWS.h"],
     prefix = "src",
     deps = [":uWebSockets_impl"],
     visibility = ["//visibility:public"],
@@ -17,6 +17,15 @@ cc_library(
         "-DBAZEL=1",
         "-DNO_OPENSSL",
     ],
-    deps = ["//libuv"],
+    deps = ["//libuv", "//sha1"],
     visibility = ["//visibility:private"],
 )
+
+cc_binary(
+    name = "main",
+    srcs = ["main.cpp"],
+    deps = [
+        ":uWebSockets",
+    ],
+)
+

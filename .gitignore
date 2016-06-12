@@ -5,3 +5,5 @@ cmake_install.cmake
 examples/CMakeFiles/
 examples/Makefile
 examples/cmake_install.cmake
+autobahn/181*
+autobahn/index.json
