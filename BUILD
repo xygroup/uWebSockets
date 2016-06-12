@@ -16,6 +16,7 @@ cc_library(
         "-std=c++14",
         "-DBAZEL=1",
         "-DNO_OPENSSL",
+        "-DNO_ZLIB",
     ],
     deps = ["//libuv", "//sha1"],
     visibility = ["//visibility:private"],

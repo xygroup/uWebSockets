@@ -87,7 +87,11 @@ private:
     void (*fragmentCallback)(Socket, const char *, size_t, OpCode, bool, size_t, bool);
 
     // buffers
-    char *receiveBuffer, *sendBuffer, *inflateBuffer, *upgradeResponse;
+    char *receiveBuffer, *sendBuffer,
+#ifndef NO_ZLIB
+         *inflateBuffer,
+#endif
+         *upgradeResponse;
     static const int BUFFER_SIZE = 307200,
                      SHORT_SEND = 4096;
     int maxPayload = 0;

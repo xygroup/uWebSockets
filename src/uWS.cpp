@@ -71,7 +71,9 @@ void sha1_compress(uint32_t state[5], const uint8_t block[64]);
 #include <uv.h>
 #endif
 
+#ifndef NO_ZLIB
 #include <zlib.h>
+#endif
 
 enum SendFlags {
     SND_CONTINUATION = 1,
@@ -131,6 +133,7 @@ struct Queue {
     }
 };
 
+#ifndef NO_ZLIB
 struct PerMessageDeflate {
     z_stream readStream, writeStream;
     bool compressedFrame;
@@ -243,6 +246,13 @@ struct PerMessageDeflate {
         }
     }
 };
+#else
+// If we remove the PerMessageDeflate struct entirely, it complicates the
+// code too much.
+struct DummyPerMessageDeflate {
+    bool compressedFrame;
+};
+#endif
 
 struct SocketData {
     unsigned char state = READ_HEAD;
@@ -261,7 +271,11 @@ struct SocketData {
 #ifndef NO_OPENSSL
     SSL *ssl = nullptr;
 #endif
+#ifndef NO_ZLIB
     PerMessageDeflate *pmd = nullptr;
+#else
+    DummyPerMessageDeflate *pmd = nullptr;
+#endif
     string buffer, controlBuffer; // turns out these are very lightweight (in GCC)
 };
 
@@ -307,7 +321,9 @@ Server::Server(int port, bool master, int options, int maxPayload, string path) 
     receiveBuffer = (char *) new uint32_t[BUFFER_SIZE / 4 + 6];
 
     sendBuffer = new char[SHORT_SEND];
+#ifndef NO_ZLIB
     inflateBuffer = new char[BUFFER_SIZE];
+#endif
     upgradeResponse = new char[2048];
 
     // set default fragment handler
@@ -354,7 +370,9 @@ Server::~Server()
 {
     delete [] (uint32_t *) receiveBuffer;
     delete [] sendBuffer;
+#ifndef NO_ZLIB
     delete [] inflateBuffer;
+#endif
     delete [] upgradeResponse;
     delete (sockaddr_in *) listenAddr;
 
@@ -427,6 +445,7 @@ void Server::internalFragment(Socket socket, const char *fragment, size_t length
     // Text or binary
     if (opCode < 3) {
 
+#ifndef NO_ZLIB
         // permessage-deflate
         if (compressed) {
 
@@ -444,6 +463,7 @@ void Server::internalFragment(Socket socket, const char *fragment, size_t length
                 length += tailLength;
             }
         }
+#endif
 
         if (!remainingBytes && fin && !socketData->buffer.length()) {
             if (opCode == 1 && !Server::isValidUtf8((unsigned char *) fragment, length)) {
@@ -509,18 +529,29 @@ void Server::upgradeHandler(Server *server)
 #else
         unsigned char shaDigest[sha1::kSHA1Length];
         sha1::SHA1HashBytes(shaInput, sizeof(shaInput) - 1, shaDigest);
+        // TODO(Erich) SHA1 can be made to run faster, since the length (60 bytes) is known ahead of time.
 #endif
 
         memcpy(server->upgradeResponse, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ", 97);
         base64(shaDigest, server->upgradeResponse + 97);
+#ifndef NO_ZLIB
         memcpy(server->upgradeResponse + 125, "\r\n", 2);
         size_t upgradeResponseLength = 127;
+#else
+        // TODO(Erich) This can be avoided by copying in extra bytes in the initial memcpy above
+        // and just overwriting those bytes that correspond to the shaDigest.
+        // In fact, since the only thing that changes from one upgrade request to the next is the
+        // shaDigest, we should only need to memcpy the HTTP text once (and just reuse it).
+        memcpy(server->upgradeResponse + 125, "\r\n\r\n", 4);
+        size_t upgradeResponseLength = 129;
+#endif
 
         uv_poll_t *clientPoll = new uv_poll_t;
         uv_poll_init_socket((uv_loop_t *) server->loop, clientPoll, get<0>(upgradeRequest));
         SocketData *socketData = new SocketData;
         socketData->server = server;
 
+#ifndef NO_ZLIB
         if ((server->options & PERMESSAGE_DEFLATE) && get<3>(upgradeRequest).length()) {
             string response;
             socketData->pmd = new PerMessageDeflate(get<3>(upgradeRequest), server->options, response);
@@ -528,9 +559,11 @@ void Server::upgradeHandler(Server *server)
             memcpy(server->upgradeResponse + 127, response.data(), response.length());
             upgradeResponseLength += response.length();
         } else {
+            // In the NO_ZLIB case, these bytes are added in the previous memcpy.
             memcpy(server->upgradeResponse + 127, "\r\n", 2);
             upgradeResponseLength += 2;
         }
+#endif
 
 #ifndef NO_OPENSSL
         socketData->ssl = (SSL *) get<2>(upgradeRequest);
@@ -974,9 +1007,11 @@ void Server::onReadable(void *vp, int status, int events)
             int lastFin = socketData->fin;
             socketData->fin = fin(frame);
 
+#ifndef NO_ZLIB
             if (socketData->pmd && opCode(frame) != 0) {
                 socketData->pmd->compressedFrame = rsv1(frame);
             }
+#endif
 
 #ifdef STRICT
             // invalid reserved bits
@@ -1427,7 +1462,9 @@ void Socket::close(bool force, unsigned short code, char *data, size_t length)
             });
         }
 
+#ifndef NO_ZLIB
         delete socketData->pmd;
+#endif
         delete socketData;
     } else {
         // force close after 15 seconds
