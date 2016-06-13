@@ -1633,41 +1633,69 @@ Client::~Client()
 }
 
 struct ConnectData {
-    string host;
+    string protocol, host, path;
     int port;
     Client *client;
 
-    ConnectData(Client *client, string host, int port) : client(client), host(host), port(port) {};
+    ConnectData(Client *client, const string &protocol, const string &host, int port, const string &path)
+        : client(client), protocol(protocol), host(host), port(port), path(path)
+    {
+    };
 };
 
 // move this into Parser.cpp
 struct ClientHTTPData {
     // concat header here
     string headerBuffer;
+    string responseKey;
     // store pointers to segments in the buffer
     vector<pair<char *, size_t>> headers;
     //reference to the receive buffer
     Client *client;
 
-    ClientHTTPData(Client *client) : client(client) {}
+    ClientHTTPData(Client *client, const string &responseKey) : client(client), responseKey(responseKey) {}
 };
 
 // Tcp connect handler
 const string HTTP_NEWLINE = "\r\n";
 const string HTTP_END_MESSAGE = "\r\n\r\n";
-void Client::connect(const string &host, int port)
+void Client::connect(string host, int port, string path /*= ""*/)
 {
+    // Parse url parts
+    string protocol = "ws";
+    int pos = 0;
+    int idx;
+    if ((idx = host.find("://")) != string::npos) {
+        protocol = host.substr(0, idx);
+        pos = idx + 3;
+    }
+    host = host.substr(pos);
+    if (protocol != "ws")// && protocol != "wss")
+    {
+        connectionFailureCallback();
+        return;
+    }
+
+    // Remove any initial '/' from path
+    if (path[0] == '/')
+        path = path.substr(1);
+
+    auto data = new ConnectData(this, protocol, host, port, path);
     struct sockaddr_in dest = { 0 };
     dest.sin_family = AF_INET;
     dest.sin_port = htons(port);
-    inet_aton(host.c_str(), &(dest.sin_addr));
+    inet_aton(data->host.c_str(), &(dest.sin_addr));
 
     FD fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0)
+    {
+        delete data;
         connectionFailureCallback();
+        return;
+    }
 
     uv_poll_t *connectHandle = new uv_poll_t;
-    connectHandle->data = new ConnectData(this, host, port);
+    connectHandle->data = data;
     uv_poll_init_socket((uv_loop_t *) loop, connectHandle, fd);
     uv_poll_start(connectHandle, UV_WRITABLE, [](uv_poll_t *p, int status, int events) {
         FD fd;
@@ -1675,8 +1703,37 @@ void Client::connect(const string &host, int port)
         ConnectData *cd = (ConnectData *) p->data;
         Client *client = cd->client;
         uv_poll_stop(p);
+
+        // Generate random bytes as websocket key
+        static const char palette[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        // We are generating the base64 string directly, so 16 bytes = 24 bytes in base 64
+        char key [24];
+        for (size_t i = 0; i < 21; ++i) {
+            key[i] = palette[rand() % 64];
+        }
+        // Last char can only have first 2 bits set
+        key[21] = palette[(rand() % 64) | 0x30];
+        // Need 2 padding chars so that numChars * 6 is divisble by 8
+        key[22] = key[23] = '=';
+
+        // Construct message
+        string msg = "GET /" + cd->path + " HTTP/1.1" + HTTP_NEWLINE +
+            "Upgrade: websocket" + HTTP_NEWLINE +
+            "Connection: Upgrade" + HTTP_NEWLINE +
+            "Host: " + cd->host + ":" + to_string(cd->port) + HTTP_NEWLINE +
+            "Sec-WebSocket-Key: " + string(key, 24) + HTTP_NEWLINE +
+            "Sec-WebSocket-Version: 13" + HTTP_END_MESSAGE;
+        //cout << "First message: " << msg << endl;
+
+        // compute expected sha1 response key
+        unsigned char shaInput[] = "XXXXXXXXXXXXXXXXXXXXXXXX258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+        memcpy(shaInput, key, 24);
+        unsigned char shaDigest[SHA_DIGEST_LENGTH];
+        SHA1(shaInput, sizeof(shaInput) - 1, shaDigest);
+        char base64ShaDigest[28];
+        base64(shaDigest, base64ShaDigest);
     
-        p->data = new ClientHTTPData(client);
+        p->data = new ClientHTTPData(client, string(base64ShaDigest, 28));
         uv_poll_start(p, UV_READABLE, [](uv_poll_t *p, int status, int events) {
             if (status < 0) {
                 // error read
@@ -1693,11 +1750,39 @@ void Client::connect(const string &host, int port)
             if (httpData->headerBuffer.find(HTTP_END_MESSAGE) != string::npos) {
                 // our part is done here
                 uv_poll_stop(p);
+
+                // Validate response
+                Request h = (char *) httpData->headerBuffer.data();
+
+                // Check response code
+                if (atoi(h.value.first) != 101)
+                {
+                    client->connectionFailureCallback();
+                    delete httpData;
+                    return;
+                }
+
+                // Check that returned sha key matches expected value
+                for (h++; h.key.second; h++) {
+                    if (h.key.second == 20) {
+                        // lowercase the key
+                        for (size_t i = 0; i < h.key.second; i++) {
+                            h.key.first[i] = tolower(h.key.first[i]);
+                        }
+                        if (!strncmp(h.key.first, "sec-websocket-accept", h.key.second)) {
+                            if (strncmp(h.value.first, httpData->responseKey.c_str(), httpData->responseKey.length()))
+                            {
+                                client->connectionFailureCallback();
+                                delete httpData;
+                                return;
+                            }
+                            break;
+                        }
+                    }
+                }
                 delete httpData;
 
-                // TODO: Validate response
-
-                // We've received the response, so upgrade to websocket
+                // We've received a valid response, so upgrade to websocket
                 SocketData<false> *socketData = new SocketData<false>;
                 socketData->agent = client;
 
@@ -1719,27 +1804,6 @@ void Client::connect(const string &host, int port)
                 // todo: start timer to time out the connection!
             }
         });
-
-        // Generate random bytes as websocket key
-        static const char palette[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        // We are generating the base64 string directly, so 16 bytes = 24 bytes in base 64
-        char key [24];
-        for (size_t i = 0; i < 21; ++i) {
-            key[i] = palette[rand() % 64];
-        }
-        // Last char can only have first 2 bits set
-        key[21] = palette[(rand() % 64) | 0x30];
-        // Need 2 padding chars so that numChars * 6 is divisble by 8
-        key[22] = key[23] = '=';
-
-        // Construct message
-        string msg = "GET / HTTP/1.1" + HTTP_NEWLINE +
-            "Upgrade: WebSocket" + HTTP_NEWLINE +
-            "Connection: Upgrade" + HTTP_NEWLINE +
-            "Host: " + cd->host + ":" + to_string(cd->port) + HTTP_NEWLINE +
-            "Sec-WebSocket-Key: " + string(key, 24) + HTTP_NEWLINE +
-            "Sec-WebSocket-Version: 13" + HTTP_END_MESSAGE;
-        //cout << "First message: " << msg << endl;
 
         // Actually write the message
         int nWrite = write(fd, msg.c_str(), msg.length());

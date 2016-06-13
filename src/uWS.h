@@ -169,7 +169,7 @@ public:
     Client(const Client &client) = delete;
     Client &operator=(const Client &client) = delete;
     void onConnectionFailure(std::function<void()> connectionCallback);
-    void connect(const std::string &host, int port);
+    void connect(std::string host, int port, std::string path = "");
 };
 
 }
