@@ -32,6 +32,7 @@ enum OpCode : unsigned char {
 
 enum Options : int {
     NO_OPTIONS = 0,
+    // TODO(Erich) These are only used when compression is enabled. Remove them?
     PERMESSAGE_DEFLATE = 1,
     SERVER_NO_CONTEXT_TAKEOVER = 2,
     CLIENT_NO_CONTEXT_TAKEOVER = 4
