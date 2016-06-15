@@ -388,12 +388,14 @@ tuple<unsigned short, char *, size_t> parseCloseFrame(string &payload)
     char *message = nullptr;
     size_t length = 0;
 
+	if (payload.length() == 1)
+		return make_tuple(0, nullptr, -1);
+
     if (payload.length() >= 2) {
         code = ntohs(*(uint16_t *) payload.data());
 
-        // correct bad codes
-        if (code < 1000 || code > 1011 || (code >= 1004 && code <= 1006)) {
-            code = 0;
+        if (code < 1000 || (code >= 1004 && code <= 1006) || (code > 1011 && code < 3000) || code > 4999) {
+			return make_tuple(0, nullptr, -1);
         }
     }
 
@@ -403,7 +405,7 @@ tuple<unsigned short, char *, size_t> parseCloseFrame(string &payload)
 
         // check utf-8
         if (!Server::isValidUtf8((unsigned char *) message, length)) {
-            code = length = 0;
+			return make_tuple(0, nullptr, -1);
         }
     }
 
@@ -466,7 +468,11 @@ void Agent<IsServer>::internalFragment(Socket<IsServer> socket, const char *frag
         if (!remainingBytes && fin) {
             if (opCode == CLOSE) {
                 tuple<unsigned short, char *, size_t> closeFrame = parseCloseFrame(socketData->controlBuffer);
-                Socket<IsServer>(p).close(false, get<0>(closeFrame), get<1>(closeFrame), get<2>(closeFrame));
+				if (get<2>(closeFrame) == -1)
+					Socket<IsServer>(p).close(false, 1002);
+				else
+					Socket<IsServer>(p).close(false, 1000);
+                //Socket<IsServer>(p).close(false, get<0>(closeFrame), get<1>(closeFrame), get<2>(closeFrame));
                 // leave the controlBuffer with the close frame intact
                 return;
             } else {
@@ -929,67 +935,11 @@ const int SHORT_MESSAGE_HEADER[2] = { 2, 6 };
 const int MEDIUM_MESSAGE_HEADER[2] = { 4, 8 };
 const int LONG_MESSAGE_HEADER[2] = { 10, 14 };
 
-// 0.17% CPU time
 template <bool IsServer>
-void Agent<IsServer>::onReadable(void *vp, int status, int events)
+inline void Agent<IsServer>::processReadData(void *vp, void *vSocketData, char *src, int length)
 {
-#ifdef VALIDATION
-    if (validPolls.find(vp) == validPolls.end()) {
-        cout << "ERROR: Woke up closed poll(UV_READABLE): " << vp << endl;
-        exit(-1);
-    } else {
-        cout << "INFO: Woke up poll(UV_READABLE): " << vp << endl;
-    }
-#endif
-
     uv_poll_t *p = (uv_poll_t *) vp;
-    SocketData<IsServer> *socketData = (SocketData<IsServer> *) p->data;
-
-    // this one is not needed, read will do this!
-    if (status < 0) {
-        Socket<IsServer>(p).close(true, 1006);
-        return;
-    }
-
-    char *src = socketData->agent->receiveBuffer;
-    memcpy(src, socketData->spill, socketData->spillLength);
-    FD fd;
-    uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
-
-    ssize_t received;
-    if (socketData->ssl) {
-        received = SSL_read(socketData->ssl, src + socketData->spillLength, BUFFER_SIZE - socketData->spillLength);
-    } else {
-        received = recv(fd, src + socketData->spillLength, BUFFER_SIZE - socketData->spillLength, 0);
-    }
-
-    if (received == -1 || received == 0) {
-        // do we have a close frame in our buffer, and did we already set the state as CLOSING?
-        if (socketData->state == CLOSING && socketData->controlBuffer.length()) {
-            tuple<unsigned short, char *, size_t> closeFrame = parseCloseFrame(socketData->controlBuffer);
-            if (!get<0>(closeFrame)) {
-                get<0>(closeFrame) = 1006;
-            }
-            Socket<IsServer>(p).close(true, get<0>(closeFrame), get<1>(closeFrame), get<2>(closeFrame));
-        } else {
-            Socket<IsServer>(p).close(true, 1006);
-        }
-        return;
-    }
-
-    // do not parse any data once in closing state
-    if (socketData->state == CLOSING) {
-        return;
-    }
-
-    // cork sends into one large package
-#ifdef __linux
-    int cork = 1;
-    setsockopt(fd, IPPROTO_TCP, TCP_CORK, &cork, sizeof(int));
-#endif
-
-    int length = socketData->spillLength + received;
-
+    SocketData<IsServer> *socketData = (SocketData<IsServer> *) vSocketData;
     parseNext:
     if (socketData->state == READ_HEAD) {
 
@@ -1110,6 +1060,73 @@ void Agent<IsServer>::onReadable(void *vp, int status, int events)
             Parser::consumeEntireBuffer<IsServer>(src, length, socketData, p);
         }
     }
+}
+
+// 0.17% CPU time
+template <bool IsServer>
+void Agent<IsServer>::onReadable(void *vp, int status, int events)
+{
+#ifdef VALIDATION
+    if (validPolls.find(vp) == validPolls.end()) {
+        cout << "ERROR: Woke up closed poll(UV_READABLE): " << vp << endl;
+        exit(-1);
+    } else {
+        cout << "INFO: Woke up poll(UV_READABLE): " << vp << endl;
+    }
+#endif
+
+    uv_poll_t *p = (uv_poll_t *) vp;
+    SocketData<IsServer> *socketData = (SocketData<IsServer> *) p->data;
+
+    // this one is not needed, read will do this!
+    if (status < 0) {
+        Socket<IsServer>(p).close(true, 1006);
+        return;
+    }
+
+    char *src = socketData->agent->receiveBuffer;
+    memcpy(src, socketData->spill, socketData->spillLength);
+    FD fd;
+    uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
+
+    ssize_t received;
+    if (socketData->ssl) {
+        received = SSL_read(socketData->ssl, src + socketData->spillLength, BUFFER_SIZE - socketData->spillLength);
+    } else {
+        received = recv(fd, src + socketData->spillLength, BUFFER_SIZE - socketData->spillLength, 0);
+    }
+
+    if (received == -1 || received == 0) {
+        // do we have a close frame in our buffer, and did we already set the state as CLOSING?
+        if (socketData->state == CLOSING && socketData->controlBuffer.length()) {
+            tuple<unsigned short, char *, size_t> closeFrame = parseCloseFrame(socketData->controlBuffer);
+			if (get<2>(closeFrame) == -1)
+				Socket<IsServer>(p).close(true, 1002);
+			else {
+				if (!get<0>(closeFrame)) {
+					get<0>(closeFrame) = 1006;
+				}
+				Socket<IsServer>(p).close(true, get<0>(closeFrame), get<1>(closeFrame), get<2>(closeFrame));
+			}
+        } else {
+            Socket<IsServer>(p).close(true, 1006);
+        }
+        return;
+    }
+
+    // do not parse any data once in closing state
+    if (socketData->state == CLOSING) {
+        return;
+    }
+
+    // cork sends into one large package
+#ifdef __linux
+    int cork = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_CORK, &cork, sizeof(int));
+#endif
+
+    int length = socketData->spillLength + received;
+	Agent<IsServer>::processReadData(p, socketData, src, length);
 
 #ifdef __linux
     cork = 0;
@@ -1469,10 +1486,10 @@ void Socket<IsServer>::close(bool force, unsigned short code, char *data, size_t
         char *sendBuffer = socketData->agent->sendBuffer;
         if (code) {
             length = min<size_t>(1024, length) + 2;
-            *((uint16_t *) &sendBuffer[length + 2]) = htons(code);
-            memcpy(&sendBuffer[length + 4], data, length - 2);
+            *((uint16_t *) &sendBuffer[length + SHORT_MESSAGE_HEADER[!IsServer]]) = htons(code);
+            memcpy(&sendBuffer[length + SHORT_MESSAGE_HEADER[!IsServer] + 2], data, length - 2);
         }
-        write((char *) sendBuffer, formatMessage<IsServer>(sendBuffer, &sendBuffer[length + 2], length, CLOSE, length), false, [](void *s) {
+        write((char *) sendBuffer, formatMessage<IsServer>(sendBuffer, &sendBuffer[length + SHORT_MESSAGE_HEADER[!IsServer]], length, CLOSE, length), false, [](void *s) {
             uv_poll_t *p = (uv_poll_t *) s;
             FD fd;
             uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
@@ -1747,7 +1764,8 @@ void Client::connect(string host, int port, string path /*= ""*/)
             httpData->headerBuffer.append(httpData->client->receiveBuffer, length);
 
             // did we read the complete header?
-            if (httpData->headerBuffer.find(HTTP_END_MESSAGE) != string::npos) {
+			int headerPos = httpData->headerBuffer.find(HTTP_END_MESSAGE);
+            if (headerPos != string::npos) {
                 // our part is done here
                 uv_poll_stop(p);
 
@@ -1780,7 +1798,6 @@ void Client::connect(string host, int port, string path /*= ""*/)
                         }
                     }
                 }
-                delete httpData;
 
                 // We've received a valid response, so upgrade to websocket
                 SocketData<false> *socketData = new SocketData<false>;
@@ -1800,6 +1817,15 @@ void Client::connect(string host, int port, string path /*= ""*/)
                 }
 
                 client->connectionCallback(p);
+
+				// If we received more bytes after the end of http response, process it as a websocket message
+				int spillLength = httpData->headerBuffer.length() - (headerPos + HTTP_END_MESSAGE.length());
+				if (spillLength) {
+					char *src = socketData->agent->receiveBuffer;
+					memcpy(src, httpData->headerBuffer.c_str() + (headerPos + HTTP_END_MESSAGE.length()), spillLength);
+					Client::processReadData(p, socketData, src, spillLength);
+				}
+                delete httpData;
             } else {
                 // todo: start timer to time out the connection!
             }

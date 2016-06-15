@@ -82,6 +82,7 @@ class Agent
 protected:
     // internal callbacks
     static void onReadable(void *vp, int status, int events);
+	static inline void processReadData(void *vp, void *vSocketData, char *src, int length);
     static void onWritable(void *vp, int status, int events);
 
     static void internalHTTP(Request &request);

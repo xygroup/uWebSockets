@@ -40,11 +40,10 @@ int main()
             cout << "Client received message: " << string(message, length) << endl;
         });
 
-        client.onDisconnection([](ClientSocket socket, int code, char *message, size_t length) {
-
+        client.onDisconnection([&](ClientSocket socket, int code, char *message, size_t length) {
         });
-        client.connect("127.0.0.1", port);
-        client.connect("127.0.0.1", port);
+		client.connect("ws://127.0.0.1", port, "/testing123");
+		client.connect("127.0.0.1", port);
 
         server.run();
     } catch (std::runtime_error& e) {
