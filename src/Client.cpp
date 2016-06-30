@@ -95,26 +95,56 @@ struct ClientHTTPData {
 // Tcp connect handler
 const std::string HTTP_NEWLINE = "\r\n";
 const std::string HTTP_END_MESSAGE = "\r\n\r\n";
-void Client::connect(std::string host, int port, std::string path /*= ""*/)
+void Client::connect(std::string url)
 {
+    std::string protocol = "ws", host, portStr, path;
+    int port;
     // Parse url parts
-    std::string protocol = "ws";
     int pos = 0;
     int idx;
-    if ((idx = host.find("://")) != std::string::npos) {
-        protocol = host.substr(0, idx);
+    if ((idx = url.find("://")) != std::string::npos) {
+        protocol = url.substr(0, idx);
         pos = idx + 3;
     }
-    host = host.substr(pos);
     if (protocol != "ws")// && protocol != "wss")
     {
         connectionFailureCallback();
         return;
     }
 
-    // Remove any initial '/' from path
-    if (path[0] == '/')
-        path = path.substr(1);
+    int portIdx = url.find(":", pos);
+    int pathIdx = url.find("/", pos);
+    int queryIdx = url.find("?", pos);
+    int fragmentIdx = url.find("#", pos);
+
+    int endIdx = url.length();
+    if (pathIdx != std::string::npos)
+        endIdx = pathIdx;
+    else if (queryIdx != std::string::npos)
+        endIdx = queryIdx;
+    else if (fragmentIdx != std::string::npos)
+        endIdx = fragmentIdx;
+
+    if (portIdx != std::string::npos) {
+        host = url.substr(pos, portIdx - pos);
+        portStr = url.substr(portIdx + 1, endIdx - portIdx - 1);
+        port = std::stoi(portStr);
+    }
+    else {
+        host = url.substr(pos, endIdx - pos);
+        // Use default port values
+        if (protocol == "ws")
+            port = 80;
+        else
+            port = 443;
+    }
+
+    if (endIdx != url.length()) {
+        path = url.substr(endIdx);
+        // Remove any initial '/' from path
+        if (path[0] == '/')
+            path = path.substr(1);
+    }
 
     auto data = new ConnectData(this, protocol, host, port, path);
     struct sockaddr_in dest = { 0 };

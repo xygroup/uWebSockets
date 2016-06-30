@@ -12,3 +12,8 @@ add_executable(client_echo client_echo.cpp)
 target_include_directories(client_echo PUBLIC ../src)
 target_compile_features(client_echo PRIVATE cxx_nullptr)
 target_link_libraries (client_echo LINK_PUBLIC uWS)
+
+add_executable(autobahn autobahn.cpp)
+target_include_directories(autobahn PUBLIC ../src)
+target_compile_features(autobahn PRIVATE cxx_nullptr)
+target_link_libraries (autobahn LINK_PUBLIC uWS)

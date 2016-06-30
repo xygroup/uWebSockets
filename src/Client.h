@@ -26,7 +26,7 @@ public:
     Client(const Client &client) = delete;
     Client &operator=(const Client &client) = delete;
     void onConnectionFailure(std::function<void()> connectionCallback);
-    void connect(std::string host, int port, std::string path = "");
+    void connect(std::string url);
 };
 
 }
