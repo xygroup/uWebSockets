@@ -51,7 +51,7 @@ void *SSLContext::newSSL(int fd)
 {
     SSL *ssl = SSL_new(sslContext);
     SSL_set_fd(ssl, fd);
-	SSL_set_mode(ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
+    SSL_set_mode(ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
     return ssl;
 }
 
@@ -60,21 +60,21 @@ void Agent<IsServer>::closeHandler(Agent<IsServer> *agent)
 {
     if (!agent->master) {
         if (IsServer)
-			uv_close((uv_handle_t *) &reinterpret_cast<Server*>(agent)->upgradeAsync, [](uv_handle_t *a) {});
+            uv_close((uv_handle_t *) &reinterpret_cast<Server*>(agent)->upgradeAsync, [](uv_handle_t *a) {});
         uv_close((uv_handle_t *) &agent->closeAsync, [](uv_handle_t *a) {});
     }
 
     if (IsServer) {
         Server *server = reinterpret_cast<Server*>(agent);
-		if (server->listenPoll) {
-			uv_os_fd_t listenFd;
-			uv_fileno((uv_handle_t *) server->listenPoll, &listenFd);
-			::close(listenFd);
-			uv_poll_stop(server->listenPoll);
-			uv_close((uv_handle_t *) server->listenPoll, [](uv_handle_t *handle) {
-				delete (uv_poll_t *) handle;
-			});
-		}
+        if (server->listenPoll) {
+            uv_os_fd_t listenFd;
+            uv_fileno((uv_handle_t *) server->listenPoll, &listenFd);
+            ::close(listenFd);
+            uv_poll_stop(server->listenPoll);
+            uv_close((uv_handle_t *) server->listenPoll, [](uv_handle_t *handle) {
+                delete (uv_poll_t *) handle;
+            });
+        }
     }
 
     for (WebSocket<IsServer> webSocket = agent->clients; webSocket; webSocket = webSocket.next()) {
@@ -127,11 +127,11 @@ void Agent<IsServer>::close(bool force)
 template <bool IsServer>
 void Agent<IsServer>::broadcast(char *data, size_t length, OpCode opCode)
 {
-	PreparedMessage *preparedMessage = WebSocket<IsServer>::prepareMessage(data, length, opCode);
+    PreparedMessage *preparedMessage = WebSocket<IsServer>::prepareMessage(data, length, opCode);
     for (WebSocket<IsServer> webSocket = clients; webSocket; webSocket = webSocket.next()) {
-		webSocket.sendPrepared(preparedMessage);
+        webSocket.sendPrepared(preparedMessage);
     }
-	WebSocket<IsServer>::finalizeMessage(preparedMessage);
+    WebSocket<IsServer>::finalizeMessage(preparedMessage);
 }
 
 template <bool IsServer>

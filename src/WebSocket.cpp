@@ -151,19 +151,19 @@ void WebSocket<IsServer>::handleFragment(const char *fragment, size_t length, Op
         if (!remainingBytes && fin) {
             if (opCode == CLOSE) {
                 std::tuple<unsigned short, char *, size_t> closeFrame = Parser::parseCloseFrame(socketData->controlBuffer);
-				if (std::get<2>(closeFrame) == -1)
-					close(false, 1002);
-				else
-					close(false, 1000);
+                if (std::get<2>(closeFrame) == -1)
+                    close(false, 1002);
+                else
+                    close(false, 1000);
 
                 // leave the controlBuffer with the close frame intact
                 return;
             } else {
                 if (opCode == PING) {
-					send((char *) socketData->controlBuffer.c_str(), socketData->controlBuffer.length(), OpCode::PONG);
-					socketData->agent->pingCallback(p, (char *) socketData->controlBuffer.c_str(), socketData->controlBuffer.length());
+                    send((char *) socketData->controlBuffer.c_str(), socketData->controlBuffer.length(), OpCode::PONG);
+                    socketData->agent->pingCallback(p, (char *) socketData->controlBuffer.c_str(), socketData->controlBuffer.length());
                 } else if (opCode == PONG) {
-					socketData->agent->pongCallback(p, (char *) socketData->controlBuffer.c_str(), socketData->controlBuffer.length());
+                    socketData->agent->pongCallback(p, (char *) socketData->controlBuffer.c_str(), socketData->controlBuffer.length());
                 }
             }
             socketData->controlBuffer.clear();
@@ -210,7 +210,7 @@ void WebSocket<IsServer>::onReadable(uv_poll_t *p, int status, int events)
     uv_os_fd_t fd;
     uv_fileno((uv_handle_t *) p, &fd);
 
-	// this whole SSL part should be shared with HTTPSocket
+    // this whole SSL part should be shared with HTTPSocket
     ssize_t received;
     if (socketData->ssl) {
         received = SSL_read(socketData->ssl, src + socketData->spillLength, Server::LARGE_BUFFER_SIZE - socketData->spillLength);
@@ -230,14 +230,14 @@ void WebSocket<IsServer>::onReadable(uv_poll_t *p, int status, int events)
         // do we have a close frame in our buffer, and did we already set the state as CLOSING?
         if (socketData->state == CLOSING && socketData->controlBuffer.length()) {
             std::tuple<unsigned short, char *, size_t> closeFrame = Parser::parseCloseFrame(socketData->controlBuffer);
-			if (std::get<2>(closeFrame) == -1)
-				WebSocket<IsServer>(p).close(true, 1002);
-			else {
-				if (!std::get<0>(closeFrame)) {
-					std::get<0>(closeFrame) = 1006;
-				}
-				WebSocket<IsServer>(p).close(true, std::get<0>(closeFrame), std::get<1>(closeFrame), std::get<2>(closeFrame));
-			}
+            if (std::get<2>(closeFrame) == -1)
+                WebSocket<IsServer>(p).close(true, 1002);
+            else {
+                if (!std::get<0>(closeFrame)) {
+                    std::get<0>(closeFrame) = 1006;
+                }
+                WebSocket<IsServer>(p).close(true, std::get<0>(closeFrame), std::get<1>(closeFrame), std::get<2>(closeFrame));
+            }
         } else {
             WebSocket<IsServer>(p).close(true, 1006);
         }

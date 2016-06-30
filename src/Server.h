@@ -26,7 +26,7 @@ private:
 
     std::function<void(uv_os_fd_t, const char *, void *, const char *, size_t)> upgradeCallback;
 
-	char *upgradeBuffer;
+    char *upgradeBuffer;
 
     char *upgradeResponse;
     uv_async_t upgradeAsync;
@@ -43,7 +43,7 @@ private:
     };
 
     // upgrade queue
-	std::queue<UpgradeRequest> upgradeQueue;
+    std::queue<UpgradeRequest> upgradeQueue;
     std::mutex upgradeQueueMutex;
 
 public:

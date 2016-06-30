@@ -44,14 +44,14 @@ class Agent
     template <bool IsServer2> friend class WebSocket;
     friend class Server;
     friend class Client;
-	friend class HTTPSocket;
+    friend class HTTPSocket;
 protected:
     uv_loop_t *loop;
     uv_poll_t *clients = nullptr;
     uv_async_t closeAsync;
     bool master, forceClose;
     int options, maxPayload;
-	SSLContext sslContext;
+    SSLContext sslContext;
     static void closeHandler(Agent<IsServer> *agent);
 
     char *recvBuffer, *sendBuffer, *inflateBuffer;
@@ -61,8 +61,8 @@ protected:
     std::function<void(WebSocket<IsServer>)> connectionCallback;
     std::function<void(WebSocket<IsServer>, int code, char *message, size_t length)> disconnectionCallback;
     std::function<void(WebSocket<IsServer>, char *, size_t, OpCode)> messageCallback;
-	std::function<void(WebSocket<IsServer>, char *, size_t)> pingCallback;
-	std::function<void(WebSocket<IsServer>, char *, size_t)> pongCallback;
+    std::function<void(WebSocket<IsServer>, char *, size_t)> pingCallback;
+    std::function<void(WebSocket<IsServer>, char *, size_t)> pongCallback;
 public:
     Agent(bool master, int options = 0, int maxPayload = 1048576, SSLContext sslContext = SSLContext()) : master(master), options(options), maxPayload(maxPayload), sslContext(sslContext) {};
     Agent(const Agent &server) = delete;
@@ -70,8 +70,8 @@ public:
     void onConnection(std::function<void(WebSocket<IsServer>)> connectionCallback);
     void onDisconnection(std::function<void(WebSocket<IsServer>, int code, char *message, size_t length)> disconnectionCallback);
     void onMessage(std::function<void(WebSocket<IsServer>, char *, size_t, OpCode)> messageCallback);
-	void onPing(std::function<void(WebSocket<IsServer>, char *, size_t)> pingCallback);
-	void onPong(std::function<void(WebSocket<IsServer>, char *, size_t)> pongCallback);
+    void onPing(std::function<void(WebSocket<IsServer>, char *, size_t)> pingCallback);
+    void onPong(std::function<void(WebSocket<IsServer>, char *, size_t)> pongCallback);
     void close(bool force = false);
     void run();
     void broadcast(char *data, size_t length, OpCode opCode);

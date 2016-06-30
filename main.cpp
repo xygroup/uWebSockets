@@ -64,8 +64,8 @@ int main()
         });
 
         worker.onMessage([](ServerSocket socket, char *message, size_t length, OpCode opCode) {
-			socket.send(message, length, opCode/*, [](ServerSocket webSocket, void *data, bool cancelled) {
-				cout << "Sent: " << (char *) data << endl;
+            socket.send(message, length, opCode/*, [](ServerSocket webSocket, void *data, bool cancelled) {
+                cout << "Sent: " << (char *) data << endl;
             }, (void *) "Some callback data here"*/);
         });
 

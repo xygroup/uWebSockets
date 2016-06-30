@@ -36,8 +36,8 @@ void Server(const FunctionCallbackInfo<Value> &args) {
             args.This()->SetAlignedPointerInInternalField(CONNECTION_CALLBACK, new Persistent<Function>);
             args.This()->SetAlignedPointerInInternalField(DISCONNECTION_CALLBACK, new Persistent<Function>);
             args.This()->SetAlignedPointerInInternalField(MESSAGE_CALLBACK, new Persistent<Function>);
-			args.This()->SetAlignedPointerInInternalField(PING_CALLBACK, new Persistent<Function>);
-			args.This()->SetAlignedPointerInInternalField(PONG_CALLBACK, new Persistent<Function>);
+            args.This()->SetAlignedPointerInInternalField(PING_CALLBACK, new Persistent<Function>);
+            args.This()->SetAlignedPointerInInternalField(PONG_CALLBACK, new Persistent<Function>);
         } catch (...) {
             args.This()->Set(String::NewFromUtf8(args.GetIsolate(), "error"), Boolean::New(args.GetIsolate(), true));
         }
@@ -250,7 +250,7 @@ void sendCallback(uWS::ServerSocket webSocket, void *data, bool cancelled)
 {
     SendCallback *sc = (SendCallback *) data;
     if (!cancelled) {
-		HandleScope hs(sc->isolate);
+        HandleScope hs(sc->isolate);
         node::MakeCallback(sc->isolate, sc->isolate->GetCurrentContext()->Global(), Local<Function>::New(sc->isolate, sc->jsCallback), 0, nullptr);
     }
     sc->jsCallback.Reset();
@@ -323,8 +323,8 @@ void Main(Local<Object> exports) {
 
     NODE_SET_PROTOTYPE_METHOD(tpl, "onConnection", onConnection);
     NODE_SET_PROTOTYPE_METHOD(tpl, "onMessage", onMessage);
-	NODE_SET_PROTOTYPE_METHOD(tpl, "onPing", onPing);
-	NODE_SET_PROTOTYPE_METHOD(tpl, "onPong", onPong);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "onPing", onPing);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "onPong", onPong);
     NODE_SET_PROTOTYPE_METHOD(tpl, "onDisconnection", onDisconnection);
     NODE_SET_PROTOTYPE_METHOD(tpl, "close", close);
     NODE_SET_PROTOTYPE_METHOD(tpl, "broadcast", broadcast);

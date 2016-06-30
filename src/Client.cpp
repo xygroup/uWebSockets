@@ -41,8 +41,8 @@ Client::Client(bool master, int options, int maxPayload) : Agent<false>(master, 
     onConnectionFailure([]() {});
     onDisconnection([](ClientSocket socket, int code, char *message, size_t length) {});
     onMessage([](ClientSocket socket, const char *data, size_t length, OpCode opCode) {});
-	onPing([](ClientSocket webSocket, char *message, size_t length) {});
-	onPong([](ClientSocket socket, char *message, size_t length) {});
+    onPing([](ClientSocket webSocket, char *message, size_t length) {});
+    onPong([](ClientSocket socket, char *message, size_t length) {});
 
     recvBuffer = new char[LARGE_BUFFER_SIZE + Parser::CONSUME_POST_PADDING];
     inflateBuffer = new char[LARGE_BUFFER_SIZE];
@@ -183,7 +183,7 @@ void Client::connect(std::string host, int port, std::string path /*= ""*/)
             httpData->headerBuffer.append(httpData->client->recvBuffer, length);
 
             // did we read the complete header?
-			int headerPos = httpData->headerBuffer.find(HTTP_END_MESSAGE);
+            int headerPos = httpData->headerBuffer.find(HTTP_END_MESSAGE);
             if (headerPos != std::string::npos) {
                 // our part is done here
                 uv_poll_stop(p);
@@ -219,24 +219,24 @@ void Client::connect(std::string host, int port, std::string path /*= ""*/)
                 }
 
                 // We've received a valid response, so upgrade to websocket
-				uv_poll_t *clientPoll = new uv_poll_t;
-				WebSocket<false> webSocket(clientPoll);
-				webSocket.initPoll(client, fd, nullptr, nullptr);
+                uv_poll_t *clientPoll = new uv_poll_t;
+                WebSocket<false> webSocket(clientPoll);
+                webSocket.initPoll(client, fd, nullptr, nullptr);
 
-				if (client->clients) {
-					webSocket.link(client->clients);
-				}
-				client->clients = clientPoll;
-				client->connectionCallback(webSocket);
+                if (client->clients) {
+                    webSocket.link(client->clients);
+                }
+                client->clients = clientPoll;
+                client->connectionCallback(webSocket);
 
-				// If we received more bytes after the end of http response, process it as a websocket message
-				int spillLength = httpData->headerBuffer.length() - (headerPos + HTTP_END_MESSAGE.length());
-				if (spillLength) {
-					SocketData<false> *socketData = (SocketData<false> *) webSocket.p->data;
-					char *src = socketData->agent->recvBuffer;
-					memcpy(src, httpData->headerBuffer.c_str() + (headerPos + HTTP_END_MESSAGE.length()), spillLength);
-					Parser::consume(spillLength, src, socketData, clientPoll);
-				}
+                // If we received more bytes after the end of http response, process it as a websocket message
+                int spillLength = httpData->headerBuffer.length() - (headerPos + HTTP_END_MESSAGE.length());
+                if (spillLength) {
+                    SocketData<false> *socketData = (SocketData<false> *) webSocket.p->data;
+                    char *src = socketData->agent->recvBuffer;
+                    memcpy(src, httpData->headerBuffer.c_str() + (headerPos + HTTP_END_MESSAGE.length()), spillLength);
+                    Parser::consume(spillLength, src, socketData, clientPoll);
+                }
                 delete httpData;
             } else {
                 // todo: start timer to time out the connection!

@@ -36,43 +36,43 @@ struct SocketData {
     unsigned int remainingBytes = 0;
     char mask[4];
     Agent<IsServer> *agent;
-	struct Queue {
-		struct Message {
-			char *data;
-			size_t length;
-			Message *nextMessage = nullptr;
-			void (*callback)(WebSocket<IsServer> webSockets, void *data, bool cancelled) = nullptr;
-			void *callbackData = nullptr;
-		};
+    struct Queue {
+        struct Message {
+            char *data;
+            size_t length;
+            Message *nextMessage = nullptr;
+            void (*callback)(WebSocket<IsServer> webSockets, void *data, bool cancelled) = nullptr;
+            void *callbackData = nullptr;
+        };
 
-		Message *head = nullptr, *tail = nullptr;
-		void pop()
-		{
-			Message *nextMessage;
-			if ((nextMessage = head->nextMessage)) {
-				delete [] (char *) head;
-				head = nextMessage;
-			} else {
-				delete [] (char *) head;
-				head = tail = nullptr;
-			}
-		}
+        Message *head = nullptr, *tail = nullptr;
+        void pop()
+        {
+            Message *nextMessage;
+            if ((nextMessage = head->nextMessage)) {
+                delete [] (char *) head;
+                head = nextMessage;
+            } else {
+                delete [] (char *) head;
+                head = tail = nullptr;
+            }
+        }
 
-		bool empty() {return head == nullptr;}
-		Message *front() {return head;}
+        bool empty() {return head == nullptr;}
+        Message *front() {return head;}
 
-		void push(Message *message)
-		{
-			if (tail) {
-				tail->nextMessage = message;
-				tail = message;
-			} else {
-				head = message;
-				tail = message;
-			}
-		}
-	};
-	Queue messageQueue;
+        void push(Message *message)
+        {
+            if (tail) {
+                tail->nextMessage = message;
+                tail = message;
+            } else {
+                head = message;
+                tail = message;
+            }
+        }
+    };
+    Queue messageQueue;
     uv_poll_t *next = nullptr, *prev = nullptr;
     void *data = nullptr;
     SSL *ssl = nullptr;

@@ -12,35 +12,35 @@ namespace uWS {
 
 Request::Request(char *cursor) : cursor(cursor)
 {
-	size_t length;
-	for (; isspace(*cursor); cursor++);
-	for (length = 0; !isspace(cursor[length]) && cursor[length] != '\r'; length++);
-	key = {cursor, length};
-	cursor += length + 1;
-	for (length = 0; !isspace(cursor[length]) && cursor[length] != '\r'; length++);
-	value = {cursor, length};
+    size_t length;
+    for (; isspace(*cursor); cursor++);
+    for (length = 0; !isspace(cursor[length]) && cursor[length] != '\r'; length++);
+    key = {cursor, length};
+    cursor += length + 1;
+    for (length = 0; !isspace(cursor[length]) && cursor[length] != '\r'; length++);
+    value = {cursor, length};
 }
 Request &Request::operator++(int)
 {
-	size_t length = 0;
-	for (; !(cursor[0] == '\r' && cursor[1] == '\n'); cursor++);
-	cursor += 2;
-	if (cursor[0] == '\r' && cursor[1] == '\n') {
-		key = value = {0, 0};
-	} else {
-		for (; cursor[length] != ':' && cursor[length] != '\r'; length++);
-		key = {cursor, length};
-		if (cursor[length] != '\r') {
-			cursor += length;
-			length = 0;
-			while (isspace(*(++cursor)));
-			for (; cursor[length] != '\r'; length++);
-			value = {cursor, length};
-		} else {
-			value = {0, 0};
-		}
-	}
-	return *this;
+    size_t length = 0;
+    for (; !(cursor[0] == '\r' && cursor[1] == '\n'); cursor++);
+    cursor += 2;
+    if (cursor[0] == '\r' && cursor[1] == '\n') {
+        key = value = {0, 0};
+    } else {
+        for (; cursor[length] != ':' && cursor[length] != '\r'; length++);
+        key = {cursor, length};
+        if (cursor[length] != '\r') {
+            cursor += length;
+            length = 0;
+            while (isspace(*(++cursor)));
+            for (; cursor[length] != '\r'; length++);
+            value = {cursor, length};
+        } else {
+            value = {0, 0};
+        }
+    }
+    return *this;
 }
 
 HTTPSocket::HTTPSocket(uv_os_fd_t fd, Server *server, void *ssl) : server(server), ssl(ssl)
@@ -134,7 +134,7 @@ void HTTPSocket::onReadable(uv_poll_t *p, int status, int events)
         // stop poll and timer
         httpData->stop();
 
-		// parse secKey, extensions
+        // parse secKey, extensions
         Request h = (char *) httpData->headerBuffer.data();
         std::pair<char *, size_t> secKey = {}, extensions = {};
         for (h++; h.key.second; h++) {

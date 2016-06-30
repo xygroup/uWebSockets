@@ -1,7 +1,6 @@
 #ifndef PARSER_H
 #define PARSER_H
 
-#include <iostream>
 #include "SocketData.h"
 #include "UTF8.h"
 #include "Network.h"
@@ -70,28 +69,28 @@ private:
         socketData->remainingBytes = fullPayloadLength - length + headerLength;
 
         if (IsServer) {
-			memcpy(socketData->mask, src + headerLength - 4, 4);
-			unmask_imprecise(src, src + headerLength, socketData->mask, length);
-			rotate_mask(4 - (length - headerLength) % 4, socketData->mask);
+            memcpy(socketData->mask, src + headerLength - 4, 4);
+            unmask_imprecise(src, src + headerLength, socketData->mask, length);
+            rotate_mask(4 - (length - headerLength) % 4, socketData->mask);
 
-			WebSocket<IsServer>(p).handleFragment(src, length - headerLength,
-										socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes, socketData->pmd && socketData->pmd->compressedFrame);
-		}
-		else {
-			WebSocket<IsServer>(p).handleFragment(src + headerLength, length - headerLength,
-										socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes, socketData->pmd && socketData->pmd->compressedFrame);
-		}
+            WebSocket<IsServer>(p).handleFragment(src, length - headerLength,
+                                        socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes, socketData->pmd && socketData->pmd->compressedFrame);
+        }
+        else {
+            WebSocket<IsServer>(p).handleFragment(src + headerLength, length - headerLength,
+                                        socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, socketData->remainingBytes, socketData->pmd && socketData->pmd->compressedFrame);
+        }
     }
 
     template <bool IsServer, typename T>
     static inline int consumeCompleteMessage(int &length, const int headerLength, T fullPayloadLength, SocketData<IsServer> *socketData, char **src, frameFormat &frame, uv_poll_t *p)
     {
         if (IsServer) {
-			unmask_imprecise_copy_mask(*src, *src + headerLength, *src + headerLength - 4, fullPayloadLength);
-			WebSocket<IsServer>(p).handleFragment(*src, fullPayloadLength, socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->pmd && socketData->pmd->compressedFrame);
-		}
-		else
-			WebSocket<IsServer>(p).handleFragment(*src + headerLength, fullPayloadLength, socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->pmd && socketData->pmd->compressedFrame);
+            unmask_imprecise_copy_mask(*src, *src + headerLength, *src + headerLength - 4, fullPayloadLength);
+            WebSocket<IsServer>(p).handleFragment(*src, fullPayloadLength, socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->pmd && socketData->pmd->compressedFrame);
+        }
+        else
+            WebSocket<IsServer>(p).handleFragment(*src + headerLength, fullPayloadLength, socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->pmd && socketData->pmd->compressedFrame);
 
         if (uv_is_closing((uv_handle_t *) p) || socketData->state == CLOSING) {
             return 1;
@@ -111,9 +110,9 @@ private:
     static inline void consumeEntireBuffer(char *src, int length, SocketData<IsServer> *socketData, uv_poll_t *p)
     {
         if (IsServer) {
-			int n = (length >> 2) + bool(length % 4); // this should always overwrite!
-			unmask_inplace(src, src + n * 4, socketData->mask);
-		}
+            int n = (length >> 2) + bool(length % 4); // this should always overwrite!
+            unmask_inplace(src, src + n * 4, socketData->mask);
+        }
 
         socketData->remainingBytes -= length;
         WebSocket<IsServer>(p).handleFragment((const char *) src, length,
@@ -139,12 +138,12 @@ private:
     static inline int consumeCompleteTail(char **src, int &length, SocketData<IsServer> *socketData, uv_poll_t *p)
     {
         if (IsServer) {
-			int n = (socketData->remainingBytes >> 2);
-			unmask_inplace(*src, *src + n * 4, socketData->mask);
-			for (int i = 0, s = socketData->remainingBytes % 4; i < s; i++) {
-				(*src)[n * 4 + i] ^= socketData->mask[i];
-			}
-		}
+            int n = (socketData->remainingBytes >> 2);
+            unmask_inplace(*src, *src + n * 4, socketData->mask);
+            for (int i = 0, s = socketData->remainingBytes % 4; i < s; i++) {
+                (*src)[n * 4 + i] ^= socketData->mask[i];
+            }
+        }
 
         WebSocket<IsServer>(p).handleFragment((const char *) *src, socketData->remainingBytes,
                                     socketData->opCode[(unsigned char) socketData->opStack], socketData->fin, 0, socketData->pmd && socketData->pmd->compressedFrame);
@@ -234,15 +233,15 @@ public:
                         if (length < 2 + (int) sizeof(uint16_t)) {
                             break;
                         }
-						if (ntohs(*(uint16_t *) &src[2]) <= length - MEDIUM_MESSAGE_HEADER[IsServer]) {
-							if (consumeCompleteMessage<IsServer>(length, MEDIUM_MESSAGE_HEADER[IsServer], ntohs(*(uint16_t *) &src[2]), socketData, &src, frame, p)) {
+                        if (ntohs(*(uint16_t *) &src[2]) <= length - MEDIUM_MESSAGE_HEADER[IsServer]) {
+                            if (consumeCompleteMessage<IsServer>(length, MEDIUM_MESSAGE_HEADER[IsServer], ntohs(*(uint16_t *) &src[2]), socketData, &src, frame, p)) {
                                 return;
                             }
                         } else {
-							if (length < MEDIUM_MESSAGE_HEADER[IsServer] + 1) {
+                            if (length < MEDIUM_MESSAGE_HEADER[IsServer] + 1) {
                                 break;
                             }
-							consumeIncompleteMessage<IsServer>(length, MEDIUM_MESSAGE_HEADER[IsServer], ntohs(*(uint16_t *) &src[2]), socketData, src, p);
+                            consumeIncompleteMessage<IsServer>(length, MEDIUM_MESSAGE_HEADER[IsServer], ntohs(*(uint16_t *) &src[2]), socketData, src, p);
                             return;
                         }
                     } else {
@@ -250,28 +249,28 @@ public:
                         if (length < 2 + (int) sizeof(uint64_t)) {
                             break;
                         }
-						if (be64toh(*(uint64_t *) &src[2]) <= (uint64_t) length - LONG_MESSAGE_HEADER[IsServer]) {
-							if (consumeCompleteMessage<IsServer>(length, LONG_MESSAGE_HEADER[IsServer], be64toh(*(uint64_t *) &src[2]), socketData, &src, frame, p)) {
+                        if (be64toh(*(uint64_t *) &src[2]) <= (uint64_t) length - LONG_MESSAGE_HEADER[IsServer]) {
+                            if (consumeCompleteMessage<IsServer>(length, LONG_MESSAGE_HEADER[IsServer], be64toh(*(uint64_t *) &src[2]), socketData, &src, frame, p)) {
                                 return;
                             }
                         } else {
-							if (length < LONG_MESSAGE_HEADER[IsServer] + 1) {
+                            if (length < LONG_MESSAGE_HEADER[IsServer] + 1) {
                                 break;
                             }
-							consumeIncompleteMessage<IsServer>(length, LONG_MESSAGE_HEADER[IsServer], be64toh(*(uint64_t *) &src[2]), socketData, src, p);
+                            consumeIncompleteMessage<IsServer>(length, LONG_MESSAGE_HEADER[IsServer], be64toh(*(uint64_t *) &src[2]), socketData, src, p);
                             return;
                         }
                     }
                 } else {
-					if (payloadLength(frame) <= length - SHORT_MESSAGE_HEADER[IsServer]) {
-						if (consumeCompleteMessage<IsServer>(length, SHORT_MESSAGE_HEADER[IsServer], payloadLength(frame), socketData, &src, frame, p)) {
+                    if (payloadLength(frame) <= length - SHORT_MESSAGE_HEADER[IsServer]) {
+                        if (consumeCompleteMessage<IsServer>(length, SHORT_MESSAGE_HEADER[IsServer], payloadLength(frame), socketData, &src, frame, p)) {
                             return;
                         }
                     } else {
-						if (length < SHORT_MESSAGE_HEADER[IsServer] + 1) {
+                        if (length < SHORT_MESSAGE_HEADER[IsServer] + 1) {
                             break;
                         }
-						consumeIncompleteMessage<IsServer>(length, SHORT_MESSAGE_HEADER[IsServer], payloadLength(frame), socketData, src, p);
+                        consumeIncompleteMessage<IsServer>(length, SHORT_MESSAGE_HEADER[IsServer], payloadLength(frame), socketData, src, p);
                         return;
                     }
                 }
@@ -281,89 +280,89 @@ public:
                 socketData->spillLength = length;
             }
         } else {
-			if (socketData->remainingBytes < (unsigned int) length) {
-				if (consumeCompleteTail<IsServer>(&src, length, socketData, p)) {
-					return;
-				}
-				goto parseNext;
-			} else {
-				consumeEntireBuffer<IsServer>(src, length, socketData, p);
-			}
+            if (socketData->remainingBytes < (unsigned int) length) {
+                if (consumeCompleteTail<IsServer>(&src, length, socketData, p)) {
+                    return;
+                }
+                goto parseNext;
+            } else {
+                consumeEntireBuffer<IsServer>(src, length, socketData, p);
+            }
         }
     }
 
     static std::tuple<unsigned short, char *, size_t> parseCloseFrame(std::string &payload)
     {
-		unsigned short code = 0;
-		char *message = nullptr;
-		size_t length = 0;
+        unsigned short code = 0;
+        char *message = nullptr;
+        size_t length = 0;
 
-		if (payload.length() == 1)
-			return std::make_tuple(0, nullptr, -1);
+        if (payload.length() == 1)
+            return std::make_tuple(0, nullptr, -1);
 
-		if (payload.length() >= 2) {
-			code = ntohs(*(uint16_t *) payload.data());
+        if (payload.length() >= 2) {
+            code = ntohs(*(uint16_t *) payload.data());
 
-			if (code < 1000 || (code >= 1004 && code <= 1006) || (code > 1011 && code < 3000) || code > 4999) {
-				return std::make_tuple(0, nullptr, -1);
-			}
-		}
+            if (code < 1000 || (code >= 1004 && code <= 1006) || (code > 1011 && code < 3000) || code > 4999) {
+                return std::make_tuple(0, nullptr, -1);
+            }
+        }
 
-		if (payload.length() > 2) {
-			message = (char *) payload.data() + 2;
-			length = payload.length() - 2;
+        if (payload.length() > 2) {
+            message = (char *) payload.data() + 2;
+            length = payload.length() - 2;
 
-			// check utf-8
-			if (!isValidUtf8((unsigned char *) message, length)) {
-				return std::make_tuple(0, nullptr, -1);
-			}
-		}
+            // check utf-8
+            if (!isValidUtf8((unsigned char *) message, length)) {
+                return std::make_tuple(0, nullptr, -1);
+            }
+        }
 
-		return std::make_tuple(code, message, length);
+        return std::make_tuple(code, message, length);
     }
 
-	template <bool IsServer>
-	static inline size_t formatMessage(char *dst, char *src, size_t length, OpCode opCode, size_t reportedLength)
-	{
-		size_t messageLength;
-		size_t headerLength;
-		if (reportedLength < 126) {
-			headerLength = 2;
-			dst[1] = reportedLength;
-		} else if (reportedLength <= UINT16_MAX) {
-			headerLength = 4;
-			dst[1] = 126;
-			*((uint16_t *) &dst[2]) = htons(reportedLength);
-		} else {
-			headerLength = 10;
-			dst[1] = 127;
-			*((uint64_t *) &dst[2]) = htobe64(reportedLength);
-		}
+    template <bool IsServer>
+    static inline size_t formatMessage(char *dst, char *src, size_t length, OpCode opCode, size_t reportedLength)
+    {
+        size_t messageLength;
+        size_t headerLength;
+        if (reportedLength < 126) {
+            headerLength = 2;
+            dst[1] = reportedLength;
+        } else if (reportedLength <= UINT16_MAX) {
+            headerLength = 4;
+            dst[1] = 126;
+            *((uint16_t *) &dst[2]) = htons(reportedLength);
+        } else {
+            headerLength = 10;
+            dst[1] = 127;
+            *((uint64_t *) &dst[2]) = htobe64(reportedLength);
+        }
 
-		int flags = 0;
-		dst[0] = (flags & SND_NO_FIN ? 0 : 128);
-		if (!(flags & SND_CONTINUATION)) {
-			dst[0] |= opCode;
-		}
+        int flags = 0;
+        dst[0] = (flags & SND_NO_FIN ? 0 : 128);
+        if (!(flags & SND_CONTINUATION)) {
+            dst[0] |= opCode;
+        }
 
-		char mask[4];
-		if (!IsServer) {
-			dst[1] |= 0x80;
-			for (int i = 0; i < 4; ++i) {
-				mask[i] = rand();
-				dst[headerLength + i] = mask[i];
-			}
-			headerLength += 4;
-		}
+        char mask[4];
+        if (!IsServer) {
+            dst[1] |= 0x80;
+            for (int i = 0; i < 4; ++i) {
+                mask[i] = rand();
+                dst[headerLength + i] = mask[i];
+            }
+            headerLength += 4;
+        }
 
-		messageLength = headerLength + length;
-		memcpy(dst + headerLength, src, length);
+        messageLength = headerLength + length;
+        memcpy(dst + headerLength, src, length);
 
-		if (!IsServer) {
-			Parser::unmask_inplace(dst + headerLength, dst + headerLength + length, mask);
-		}
-		return messageLength;
-	}
+        if (!IsServer) {
+            Parser::unmask_inplace(dst + headerLength, dst + headerLength + length, mask);
+        }
+        return messageLength;
+    }
 };
 
 }

@@ -33,8 +33,8 @@ class Socket {
         this.nativeServer = nativeServer;
         this.onmessage = noop;
         this.onclose = noop;
-		this.onping = noop;
-		this.onpong = noop;
+        this.onping = noop;
+        this.onpong = noop;
         this.upgradeReq = null;
     }
 
@@ -176,7 +176,7 @@ class Socket {
         }
 
         const binary = options && options.binary || typeof message !== 'string';
-		this.nativeServer.send(this.nativeSocket, message, binary ? exports.OPCODE_BINARY : exports.OPCODE_TEXT, cb);
+        this.nativeServer.send(this.nativeSocket, message, binary ? exports.OPCODE_BINARY : exports.OPCODE_TEXT, cb);
     }
 
     /**
@@ -304,7 +304,7 @@ class Server extends EventEmitter {
         this._upgradeCallback = noop;
         this._upgradeListener = null;
         this._noDelay = options.noDelay === undefined ? true : options.noDelay;
-		this._lastUpgradeListener = true;
+        this._lastUpgradeListener = true;
 
         if (!options.noServer) {
             this.httpServer = options.server ? options.server : http.createServer((request, response) => {

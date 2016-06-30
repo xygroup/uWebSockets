@@ -17,22 +17,22 @@ struct Request {
 };
 
 class HTTPSocket {
-	friend class Server;
+    friend class Server;
     std::string headerBuffer;
     std::vector<std::pair<char *, size_t>> headers;
-	static const int MAX_HEADER_BUFFER_LENGTH = 10240;
+    static const int MAX_HEADER_BUFFER_LENGTH = 10240;
 
     uv_poll_t *p;
     uv_timer_t *t;
     Server *server;
-	void *ssl;
+    void *ssl;
 
     HTTPSocket(uv_os_fd_t fd, Server *server, void *ssl);
     ~HTTPSocket();
     void stop();
     void close();
     static void onReadable(uv_poll_t *p, int status, int events);
-	static void onTimeout(uv_timer_t *t);
+    static void onTimeout(uv_timer_t *t);
 };
 
 }

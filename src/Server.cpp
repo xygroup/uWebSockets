@@ -103,8 +103,8 @@ Server::Server(int port, bool master, int options, int maxPayload, SSLContext ss
     onConnection([](ServerSocket webSocket) {});
     onDisconnection([](ServerSocket webSocket, int code, char *message, size_t length) {});
     onMessage([](ServerSocket webSocket, char *message, size_t length, OpCode opCode) {});
-	onPing([](ServerSocket webSocket, char *message, size_t length) {});
-	onPong([](ServerSocket webSocket, char *message, size_t length) {});
+    onPing([](ServerSocket webSocket, char *message, size_t length) {});
+    onPong([](ServerSocket webSocket, char *message, size_t length) {});
     onUpgrade([this](uv_os_fd_t fd, const char *secKey, void *ssl, const char *extensions, size_t extensionsLength) {
         upgrade(fd, secKey, ssl, extensions, extensionsLength);
     });
