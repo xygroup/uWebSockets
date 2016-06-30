@@ -14,43 +14,62 @@ Server *worker, *server;
 int main()
 {
     try {
+        // set up ssl
+        SSLContext sslContext("/home/alexhultman/uws-connections-dropped/secrets/cert.pem",
+                              "/home/alexhultman/uws-connections-dropped/secrets/key.pem");
+
         // our listening server
-        Server server(3000, false);
-        server.onUpgrade([](FD fd, const char *secKey, void *ssl, const char *extensions, size_t extensionsLength) {
+        Server server(3000, false, 0, 0, sslContext);
+        server.onUpgrade([](uv_os_fd_t fd, const char *secKey, void *ssl, const char *extensions, size_t extensionsLength) {
             // transfer connection to one of our worker servers
             ::worker->upgrade(fd, secKey, ssl, extensions, extensionsLength);
         });
 
         // our working server, does not listen
-        Server worker(0, false, PERMESSAGE_DEFLATE | SERVER_NO_CONTEXT_TAKEOVER | CLIENT_NO_CONTEXT_TAKEOVER, 1000000);
+        Server worker(0, false, PERMESSAGE_DEFLATE | SERVER_NO_CONTEXT_TAKEOVER | CLIENT_NO_CONTEXT_TAKEOVER, 0);
         ::worker = &worker;
         ::server = &server;
-        worker.onConnection([](Socket socket) {
+        worker.onConnection([](ServerSocket socket) {
             cout << "[Connection] clients: " << ++connections << endl;
+
+            //socket.ping();
 
             //socket.close();
             //socket.close(false, 1011, "abcd", 4);
 
-            Socket::Address a = socket.getAddress();
+            uWS::Address a = socket.getAddress();
             cout << a.address << endl;
             cout << a.family << endl;
             cout << a.port << endl;
 
+            //char message[] = "Welcome!";
+            //::worker->broadcast(message, sizeof(message) - 1, OpCode::TEXT);
+
             // test shutting down the server when two clients are connected
             // this should disconnect both clients and exit libuv loop
-            if (connections == 2) {
+            /*if (connections == 2) {
                 ::worker->broadcast("I'm shutting you down now", 25, TEXT);
                 cout << "Shutting down server now" << endl;
                 ::worker->close();
                 ::server->close();
-            }
+            }*/
         });
 
-        worker.onMessage([](Socket socket, const char *message, size_t length, OpCode opCode) {
-            socket.send((char *) message, length, opCode);
+        worker.onPing([](ServerSocket webSocket, char *message, size_t length) {
+            cout << "Got a ping!" << endl;
         });
 
-        worker.onDisconnection([](Socket socket, int code, char *message, size_t length) {
+        worker.onPong([](ServerSocket webSocket, char *message, size_t length) {
+            cout << "Got a pong!" << endl;
+        });
+
+        worker.onMessage([](ServerSocket socket, char *message, size_t length, OpCode opCode) {
+			socket.send(message, length, opCode/*, [](ServerSocket webSocket, void *data, bool cancelled) {
+				cout << "Sent: " << (char *) data << endl;
+            }, (void *) "Some callback data here"*/);
+        });
+
+        worker.onDisconnection([](ServerSocket socket, int code, char *message, size_t length) {
             cout << "[Disconnection] clients: " << --connections << endl;
             cout << "Code: " << code << endl;
             cout << "Message: " << string(message, length) << endl;

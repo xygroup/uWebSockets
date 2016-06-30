@@ -1,11 +1,14 @@
 <div align="center"><img src="logo.png"/></div>
-`µWS` is one of the most lightweight, efficient & scalable WebSocket server implementations available. It features an easy-to-use, fully async object-oriented interface and scales to millions of connections using only a fraction of memory compared to the competition. License is zlib/libpng (very permissive & suits commercial applications).
+`µWS` is one of the most lightweight, efficient & scalable WebSocket server implementations available. It features an easy-to-use, fully async object-oriented interface and scales to millions of connections using only a fraction of memory compared to the competition. While performance and scalability are two of our top priorities, we consider security, stability and standards compliance more important. License is zlib/libpng (very permissive & suits commercial applications).
 
+* Autobahn tests [all pass](http://htmlpreview.github.io/?https://github.com/alexhultman/uWebSockets/blob/master/autobahn/index.html).
 * Linux, OS X & Windows support.
+* Valgrind clean.
 * Built-in load balancing and multi-core scalability.
 * SSL/TLS support & integrates with foreign HTTPS servers.
 * Permessage-deflate built-in.
 * Node.js binding exposed as the well-known `ws` interface.
+* 10-30x faster than `ws` (if they are "fastest", we are "fastester").
 * Optional engine in projects like Socket.IO, Primus & SocketCluster.
 
 [![npm version](https://badge.fury.io/js/uws.svg)](https://badge.fury.io/js/uws) [![](https://api.travis-ci.org/alexhultman/uWebSockets.svg?branch=master)](https://travis-ci.org/alexhultman/uWebSockets) [![](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/alexhultman/uWebSockets)
@@ -19,6 +22,9 @@ WebSocket++ v0.7.0 | µWS is **63x** as lightweight | µWS is **4x** as performa
 Kaazing Gateway Community 5.0.0 | µWS is **62x** as lightweight | µWS is **15x** as performant | µWS is **18x** as performant | unable to measure
 
 *Benchmarks are run with default settings in all libraries, except for `ws` which is run with the native performance addons. These results were achieved with the native C++ server, not the Node.js addon. Expect worse performance and scalability when using Node.js (don't worry, the Node.js addon will run circles around `ws`).*
+
+## What others are saying
+**“***With changing one letter in the code from "ws" to "uws" I've been able to serve twice as many players for the same cost.***”** - Rezoner / [wilds.io](http://wilds.io)
 
 ## Usage
 
@@ -75,15 +81,15 @@ int main()
 {
     /* this is an echo server that properly passes every supported Autobahn test */
     uWS::Server server(3000);
-    server.onConnection([](uWS::Socket socket) {
+    server.onConnection([](uWS::WebSocket socket) {
         cout << "[Connection] clients: " << ++connections << endl;
     });
 
-    server.onMessage([](uWS::Socket socket, const char *message, size_t length, uWS::OpCode opCode) {
-        socket.send((char *) message, length, opCode);
+    server.onMessage([](uWS::WebSocket socket, char *message, size_t length, uWS::OpCode opCode) {
+        socket.send(message, length, opCode);
     });
 
-    server.onDisconnection([](uWS::Socket socket) {
+    server.onDisconnection([](uWS::WebSocket socket) {
         cout << "[Disconnection] clients: " << --connections << endl;
     });
 

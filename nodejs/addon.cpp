@@ -20,7 +20,9 @@ using namespace uWS;
 enum {
     CONNECTION_CALLBACK = 1,
     DISCONNECTION_CALLBACK,
-    MESSAGE_CALLBACK
+    MESSAGE_CALLBACK,
+    PING_CALLBACK,
+    PONG_CALLBACK
 };
 
 Persistent<Object> persistentTicket;
@@ -34,6 +36,8 @@ void Server(const FunctionCallbackInfo<Value> &args) {
             args.This()->SetAlignedPointerInInternalField(CONNECTION_CALLBACK, new Persistent<Function>);
             args.This()->SetAlignedPointerInInternalField(DISCONNECTION_CALLBACK, new Persistent<Function>);
             args.This()->SetAlignedPointerInInternalField(MESSAGE_CALLBACK, new Persistent<Function>);
+			args.This()->SetAlignedPointerInInternalField(PING_CALLBACK, new Persistent<Function>);
+			args.This()->SetAlignedPointerInInternalField(PONG_CALLBACK, new Persistent<Function>);
         } catch (...) {
             args.This()->Set(String::NewFromUtf8(args.GetIsolate(), "error"), Boolean::New(args.GetIsolate(), true));
         }
@@ -42,9 +46,9 @@ void Server(const FunctionCallbackInfo<Value> &args) {
 }
 
 struct Socket : uWS::ServerSocket {
-    Socket(void *s) : uWS::ServerSocket(s) {}
+    Socket(void *s) : uWS::ServerSocket((uv_poll_t *) s) {}
     Socket(const uWS::ServerSocket &s) : uWS::ServerSocket(s) {}
-    void **getSocketPtr() {return &socket;}
+    void **getSocketPtr() {return (void **) &socket;}
 };
 
 inline Local<Number> wrapSocket(uWS::ServerSocket socket, Isolate *isolate) {
@@ -54,9 +58,9 @@ inline Local<Number> wrapSocket(uWS::ServerSocket socket, Isolate *isolate) {
 inline uWS::ServerSocket unwrapSocket(Local<Number> number) {
     union {
         double number;
-        void *socket;
+        uv_poll_t *socket;
     } socketUnwrapper = {number->Value()};
-    return ::Socket(socketUnwrapper.socket);
+    return Socket(socketUnwrapper.socket);
 }
 
 void onConnection(const FunctionCallbackInfo<Value> &args) {
@@ -87,6 +91,34 @@ void onMessage(const FunctionCallbackInfo<Value> &args) {
                                Boolean::New(isolate, opCode == BINARY),
                                getDataV8(socket, isolate)};
         node::MakeCallback(isolate, isolate->GetCurrentContext()->Global(), Local<Function>::New(isolate, *messageCallback), 4, argv);
+    });
+}
+
+void onPing(const FunctionCallbackInfo<Value> &args) {
+  uWS::Server *server = (uWS::Server *) args.Holder()->GetAlignedPointerFromInternalField(0);
+  Isolate *isolate = args.GetIsolate();
+  Persistent<Function> *pingCallback = (Persistent<Function> *) args.Holder()->GetAlignedPointerFromInternalField(PING_CALLBACK);
+  pingCallback->Reset(isolate, Local<Function>::Cast(args[0]));
+  server->onPing([isolate, pingCallback](uWS::ServerSocket socket, const char *message, size_t length) {
+      HandleScope hs(isolate);
+      Local<Value> argv[] = {wrapSocket(socket, isolate),
+                             node::Buffer::New(isolate, (char *) message, length, [](char *data, void *hint) {}, nullptr).ToLocalChecked(),
+                             getDataV8(socket, isolate)};
+      node::MakeCallback(isolate, isolate->GetCurrentContext()->Global(), Local<Function>::New(isolate, *pingCallback), 3, argv);
+  });
+}
+
+void onPong(const FunctionCallbackInfo<Value> &args) {
+    uWS::Server *server = (uWS::Server *) args.Holder()->GetAlignedPointerFromInternalField(0);
+    Isolate *isolate = args.GetIsolate();
+    Persistent<Function> *pongCallback = (Persistent<Function> *) args.Holder()->GetAlignedPointerFromInternalField(PONG_CALLBACK);
+    pongCallback->Reset(isolate, Local<Function>::Cast(args[0]));
+    server->onPong([isolate, pongCallback](uWS::ServerSocket socket, const char *message, size_t length) {
+        HandleScope hs(isolate);
+        Local<Value> argv[] = {wrapSocket(socket, isolate),
+                               node::Buffer::New(isolate, (char *) message, length, [](char *data, void *hint) {}, nullptr).ToLocalChecked(),
+                               getDataV8(socket, isolate)};
+        node::MakeCallback(isolate, isolate->GetCurrentContext()->Global(), Local<Function>::New(isolate, *pongCallback), 3, argv);
     });
 }
 
@@ -209,14 +241,41 @@ void transfer(const FunctionCallbackInfo<Value> &args)
     args.GetReturnValue().Set(ticket);
 }
 
+struct SendCallback {
+    Persistent<Function> jsCallback;
+    Isolate *isolate;
+};
+
+void sendCallback(uWS::ServerSocket webSocket, void *data, bool cancelled)
+{
+    SendCallback *sc = (SendCallback *) data;
+    if (!cancelled) {
+		HandleScope hs(sc->isolate);
+        node::MakeCallback(sc->isolate, sc->isolate->GetCurrentContext()->Global(), Local<Function>::New(sc->isolate, sc->jsCallback), 0, nullptr);
+    }
+    sc->jsCallback.Reset();
+    delete sc;
+}
+
 void send(const FunctionCallbackInfo<Value> &args)
 {
     OpCode opCode = (uWS::OpCode) args[2]->IntegerValue();
     NativeString nativeString(args[1]);
+
+    SendCallback *sc = nullptr;
+    void (*callback)(uWS::ServerSocket, void *, bool) = nullptr;
+
+    if (args[3]->IsFunction()) {
+        callback = sendCallback;
+        sc = new SendCallback;
+        sc->jsCallback.Reset(args.GetIsolate(), Local<Function>::Cast(args[3]));
+        sc->isolate = args.GetIsolate();
+    }
+
     unwrapSocket(args[0]->ToNumber())
                  .send(nativeString.getData(),
                  nativeString.getLength(),
-                 opCode);
+                 opCode, callback, sc);
 }
 
 void getAddress(const FunctionCallbackInfo<Value> &args)
@@ -237,13 +296,35 @@ void broadcast(const FunctionCallbackInfo<Value> &args)
     server->broadcast(nativeString.getData(), nativeString.getLength(), opCode);
 }
 
+void prepareMessage(const FunctionCallbackInfo<Value> &args)
+{
+    OpCode opCode = (uWS::OpCode) args[1]->IntegerValue();
+    NativeString nativeString(args[0]);
+    Local<Object> preparedMessage = Local<Object>::New(args.GetIsolate(), persistentTicket)->Clone();
+    preparedMessage->SetAlignedPointerInInternalField(0, uWS::ServerSocket::prepareMessage(nativeString.getData(), nativeString.getLength(), opCode));
+    args.GetReturnValue().Set(preparedMessage);
+}
+
+void sendPrepared(const FunctionCallbackInfo<Value> &args)
+{
+    unwrapSocket(args[0]->ToNumber())
+                 .sendPrepared((uWS::PreparedMessage *) args[1]->ToObject()->GetAlignedPointerFromInternalField(0));
+}
+
+void finalizeMessage(const FunctionCallbackInfo<Value> &args)
+{
+    ServerSocket::finalizeMessage((uWS::PreparedMessage *) args[0]->ToObject()->GetAlignedPointerFromInternalField(0));
+}
+
 void Main(Local<Object> exports) {
     Isolate *isolate = exports->GetIsolate();
     Local<FunctionTemplate> tpl = FunctionTemplate::New(isolate, ::Server);
-    tpl->InstanceTemplate()->SetInternalFieldCount(4);
+    tpl->InstanceTemplate()->SetInternalFieldCount(6);
 
     NODE_SET_PROTOTYPE_METHOD(tpl, "onConnection", onConnection);
     NODE_SET_PROTOTYPE_METHOD(tpl, "onMessage", onMessage);
+	NODE_SET_PROTOTYPE_METHOD(tpl, "onPing", onPing);
+	NODE_SET_PROTOTYPE_METHOD(tpl, "onPong", onPong);
     NODE_SET_PROTOTYPE_METHOD(tpl, "onDisconnection", onDisconnection);
     NODE_SET_PROTOTYPE_METHOD(tpl, "close", close);
     NODE_SET_PROTOTYPE_METHOD(tpl, "broadcast", broadcast);
@@ -253,6 +334,9 @@ void Main(Local<Object> exports) {
     NODE_SET_PROTOTYPE_METHOD(tpl, "setData", setData);
     NODE_SET_PROTOTYPE_METHOD(tpl, "getData", getData);
     NODE_SET_PROTOTYPE_METHOD(tpl, "send", send);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "prepareMessage", prepareMessage);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "sendPrepared", sendPrepared);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "finalizeMessage", finalizeMessage);
     NODE_SET_PROTOTYPE_METHOD(tpl, "getAddress", getAddress);
 
     exports->Set(String::NewFromUtf8(isolate, "Server"), tpl->GetFunction());
