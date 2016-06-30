@@ -188,7 +188,10 @@ void Client::connect(std::string url)
             "Connection: Upgrade" + HTTP_NEWLINE +
             "Host: " + cd->host + ":" + std::to_string(cd->port) + HTTP_NEWLINE +
             "Sec-WebSocket-Key: " + std::string(key, 24) + HTTP_NEWLINE +
-            "Sec-WebSocket-Version: 13" + HTTP_END_MESSAGE;
+            "Sec-WebSocket-Version: 13" + HTTP_NEWLINE;
+        if ((client->options & PERMESSAGE_DEFLATE))
+            msg += "Sec-WebSocket-Extensions: permessage-deflate" + HTTP_NEWLINE;
+        msg += HTTP_NEWLINE;
         //cout << "First message: " << msg << endl;
 
         // compute expected sha1 response key
@@ -230,11 +233,18 @@ void Client::connect(std::string url)
                 }
 
                 // Check that returned sha key matches expected value
+                std::string extensions;
                 for (h++; h.key.second; h++) {
                     if (h.key.second == 20) {
                         // lowercase the key
                         for (size_t i = 0; i < h.key.second; i++) {
                             h.key.first[i] = tolower(h.key.first[i]);
+                        }
+                        if (!strncmp(h.key.first, "sec-websocket-extensions", h.key.second)) {
+                            for (size_t i = 0; i < h.value.second; i++) {
+                                h.value.first[i] = tolower(h.value.first[i]);
+                            }
+                            extensions = std::string(h.value.first, h.value.second);
                         }
                         if (!strncmp(h.key.first, "sec-websocket-accept", h.key.second)) {
                             if (strncmp(h.value.first, httpData->responseKey.c_str(), httpData->responseKey.length()))
@@ -243,15 +253,21 @@ void Client::connect(std::string url)
                                 delete httpData;
                                 return;
                             }
-                            break;
                         }
                     }
+                }
+
+                PerMessageDeflate *perMessageDeflate = nullptr;
+                ExtensionsParser extensionsParser(extensions.c_str());
+                if ((client->options & PERMESSAGE_DEFLATE) && extensionsParser.perMessageDeflate) {
+                    std::string response;
+                    perMessageDeflate = new PerMessageDeflate(extensionsParser, client->options, response);
                 }
 
                 // We've received a valid response, so upgrade to websocket
                 uv_poll_t *clientPoll = new uv_poll_t;
                 WebSocket<false> webSocket(clientPoll);
-                webSocket.initPoll(client, fd, nullptr, nullptr);
+                webSocket.initPoll(client, fd, nullptr, perMessageDeflate);
 
                 if (client->clients) {
                     webSocket.link(client->clients);
