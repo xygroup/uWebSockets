@@ -5,6 +5,7 @@
 #include "Extensions.h"
 #include "Parser.h"
 
+#include <iostream>
 #include <cstring>
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
@@ -28,7 +29,7 @@ void base64(unsigned char *src, char *dst)
 namespace uWS {
 
 bool firstClient = true;
-Client::Client(bool master, int options, int maxPayload) : Agent<false>(master, options, maxPayload)
+Client::Client(bool master, unsigned int options, int pmdMaxWindowBits, unsigned int maxPayload) : pmdMaxWindowBits(pmdMaxWindowBits), Agent<false>(master, options, maxPayload)
 {
     if (firstClient) {
         srand(time(nullptr));
@@ -152,7 +153,7 @@ void Client::connect(std::string url)
     dest.sin_port = htons(port);
     inet_aton(data->host.c_str(), &(dest.sin_addr));
 
-    uv_os_fd_t fd = socket(AF_INET, SOCK_STREAM, 0);
+    uv_os_sock_t fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0)
     {
         delete data;
@@ -164,8 +165,8 @@ void Client::connect(std::string url)
     connectHandle->data = data;
     uv_poll_init_socket((uv_loop_t *) loop, connectHandle, fd);
     uv_poll_start(connectHandle, UV_WRITABLE, [](uv_poll_t *p, int status, int events) {
-        uv_os_fd_t fd;
-        uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
+        uv_os_sock_t fd;
+        uv_fileno((uv_handle_t *) p, (uv_os_sock_t *) &fd);
         ConnectData *cd = (ConnectData *) p->data;
         Client *client = cd->client;
         uv_poll_stop(p);
@@ -189,8 +190,16 @@ void Client::connect(std::string url)
             "Host: " + cd->host + ":" + std::to_string(cd->port) + HTTP_NEWLINE +
             "Sec-WebSocket-Key: " + std::string(key, 24) + HTTP_NEWLINE +
             "Sec-WebSocket-Version: 13" + HTTP_NEWLINE;
-        if ((client->options & PERMESSAGE_DEFLATE))
-            msg += "Sec-WebSocket-Extensions: permessage-deflate" + HTTP_NEWLINE;
+        if (client->options & PERMESSAGE_DEFLATE) {
+            msg += "Sec-WebSocket-Extensions: permessage-deflate";
+			if (client->options & SERVER_NO_CONTEXT_TAKEOVER)
+				msg += "; server_no_context_takeover";
+			if (client->options & CLIENT_NO_CONTEXT_TAKEOVER)
+				msg += "; client_no_context_takeover";
+			if (client->pmdMaxWindowBits >= 8 && client->pmdMaxWindowBits <= 15)
+				msg += "; server_max_window_bits=" + std::to_string(client->pmdMaxWindowBits);
+			msg += HTTP_NEWLINE;
+		}
         msg += HTTP_NEWLINE;
         //cout << "First message: " << msg << endl;
 
@@ -208,8 +217,8 @@ void Client::connect(std::string url)
                 // error read
             }
 
-            uv_os_fd_t fd;
-            uv_fileno((uv_handle_t *) p, (uv_os_fd_t *) &fd);
+            uv_os_sock_t fd;
+            uv_fileno((uv_handle_t *) p, (uv_os_sock_t *) &fd);
             ClientHTTPData *httpData = (ClientHTTPData *) p->data;
             Client* client = httpData->client;
             int length = recv(fd, httpData->client->recvBuffer, LARGE_BUFFER_SIZE + Parser::CONSUME_POST_PADDING, 0);
@@ -235,26 +244,24 @@ void Client::connect(std::string url)
                 // Check that returned sha key matches expected value
                 std::string extensions;
                 for (h++; h.key.second; h++) {
-                    if (h.key.second == 20) {
-                        // lowercase the key
-                        for (size_t i = 0; i < h.key.second; i++) {
-                            h.key.first[i] = tolower(h.key.first[i]);
-                        }
-                        if (!strncmp(h.key.first, "sec-websocket-extensions", h.key.second)) {
-                            for (size_t i = 0; i < h.value.second; i++) {
-                                h.value.first[i] = tolower(h.value.first[i]);
-                            }
-                            extensions = std::string(h.value.first, h.value.second);
-                        }
-                        if (!strncmp(h.key.first, "sec-websocket-accept", h.key.second)) {
-                            if (strncmp(h.value.first, httpData->responseKey.c_str(), httpData->responseKey.length()))
-                            {
-                                client->connectionFailureCallback();
-                                delete httpData;
-                                return;
-                            }
-                        }
-                    }
+					// lowercase the key
+					for (size_t i = 0; i < h.key.second; i++) {
+						h.key.first[i] = tolower(h.key.first[i]);
+					}
+					if (!strncmp(h.key.first, "sec-websocket-extensions", h.key.second)) {
+						for (size_t i = 0; i < h.value.second; i++) {
+							h.value.first[i] = tolower(h.value.first[i]);
+						}
+						extensions = std::string(h.value.first, h.value.second);
+					}
+					if (!strncmp(h.key.first, "sec-websocket-accept", h.key.second)) {
+						if (strncmp(h.value.first, httpData->responseKey.c_str(), httpData->responseKey.length()))
+						{
+							client->connectionFailureCallback();
+							delete httpData;
+							return;
+						}
+					}
                 }
 
                 PerMessageDeflate *perMessageDeflate = nullptr;

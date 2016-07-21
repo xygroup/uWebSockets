@@ -13,30 +13,32 @@
 #endif
 
 #ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#define NOMINMAX
 #include <WinSock2.h>
-#include <Windows.h>
+#include <Ws2tcpip.h>
 #define SHUT_WR SD_SEND
 #define htobe64(x) htonll(x)
 #define be64toh(x) ntohll(x)
 #define __thread __declspec(thread)
 
 inline void close(SOCKET fd) {closesocket(fd);}
-inline const char *inet_ntop(int af, const void *src, char *dst, socklen_t size) {
-    return InetNtop(af, (void *) src, dst, size);
-}
+inline int setsockopt(SOCKET fd, int level, int optname, const void *optval, socklen_t optlen) {
+    return setsockopt(fd, level, optname, (const char *) optval, optlen);
 
 inline SOCKET dup(SOCKET socket) {
-    WSAPROTOCOL_INFO pi;
-    WSADuplicateSocket(socket, GetCurrentProcessId(), &pi);
-    return WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, &pi, 0, WSA_FLAG_OVERLAPPED);
+    WSAPROTOCOL_INFOW pi;
+    if (WSADuplicateSocketW(socket, GetCurrentProcessId(), &pi) == SOCKET_ERROR) {
+        return INVALID_SOCKET;
+    }
+    return WSASocketW(pi.iAddressFamily, pi.iSocketType, pi.iProtocol, &pi, 0, WSA_FLAG_OVERLAPPED);
 }
 #else
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <cstring>
+#define SOCKET_ERROR -1
+#define INVALID_SOCKET -1
 #endif
 
 #endif // NETWORK_H

@@ -1,10 +1,12 @@
 'use strict';
 
 const http = require('http');
-//const https = require('https'); // should we ever create an https server?
 const EventEmitter = require('events');
 const EE_ERROR = "Registering more than one listener to a WebSocket is not supported.";
 function noop() {}
+function abortConnection(socket, code, name) {
+    socket.end('HTTP/1.1 ' + code + ' ' + name + '\r\n\r\n');
+}
 const uws = (() => {
     try {
         return require(`./uws_${process.platform}_${process.versions.modules}`);
@@ -13,13 +15,6 @@ const uws = (() => {
         'available for your system. Please install a supported C++11 compiler and reinstall the module \'uws\'.');
     }
 })();
-
-exports.PERMESSAGE_DEFLATE = 1;
-exports.SERVER_NO_CONTEXT_TAKEOVER = 2;
-exports.CLIENT_NO_CONTEXT_TAKEOVER = 4;
-exports.OPCODE_TEXT = 1;
-exports.OPCODE_BINARY = 2;
-exports.OPCODE_PING = 9;
 
 class Socket {
     /**
@@ -31,11 +26,44 @@ class Socket {
     constructor(nativeSocket, nativeServer) {
         this.nativeSocket = nativeSocket;
         this.nativeServer = nativeServer;
-        this.onmessage = noop;
-        this.onclose = noop;
+        this.internalOnMessage = noop;
+        this.internalOnClose = noop;
         this.onping = noop;
         this.onpong = noop;
         this.upgradeReq = null;
+    }
+
+    set onmessage(f) {
+        if (f) {
+            this.internalOnMessage = (message) => {
+                f({data: Buffer.isBuffer(message) ? new Uint8Array(message).buffer : message});
+            };
+        } else {
+            this.internalOnMessage = noop;
+        }
+    }
+
+    set onclose(f) {
+        if (f) {
+            this.internalOnClose = () => {
+                f();
+            };
+        } else {
+            this.internalOnClose = noop;
+        }
+    }
+
+    emit(eventName, arg1, arg2) {
+        if (eventName === 'message') {
+            this.internalOnMessage(arg1);
+        } else if (eventName === 'close') {
+            this.internalOnClose(arg1, arg2);
+        } else if (eventName === 'ping') {
+            this.onping(arg1);
+        } else if (eventName === 'pong') {
+            this.onpong(arg1);
+        }
+        return this;
     }
 
     /**
@@ -47,15 +75,15 @@ class Socket {
      */
     on(eventName, f) {
         if (eventName === 'message') {
-            if (this.onmessage !== noop) {
+            if (this.internalOnMessage !== noop) {
                 throw Error(EE_ERROR);
             }
-            this.onmessage = f;
+            this.internalOnMessage = f;
         } else if (eventName === 'close') {
-            if (this.onclose !== noop) {
+            if (this.internalOnClose !== noop) {
                 throw Error(EE_ERROR);
             }
-            this.onclose = f;
+            this.internalOnClose = f;
         } else if (eventName === 'ping') {
             if (this.onping !== noop) {
                 throw Error(EE_ERROR);
@@ -79,20 +107,20 @@ class Socket {
      */
     once(eventName, f) {
         if (eventName === 'message') {
-            if (this.onmessage !== noop) {
+            if (this.internalOnMessage !== noop) {
                 throw Error(EE_ERROR);
             }
-            this.onmessage = () => {
+            this.internalOnMessage = () => {
                 f();
-                this.onmessage = noop;
+                this.internalOnMessage = noop;
             };
         } else if (eventName === 'close') {
-            if (this.onclose !== noop) {
+            if (this.internalOnClose !== noop) {
                 throw Error(EE_ERROR);
             }
-            this.onclose = () => {
+            this.internalOnClose = () => {
                 f();
-                this.onclose = noop;
+                this.internalOnClose = noop;
             };
         } else if (eventName === 'ping') {
             if (this.onping !== noop) {
@@ -123,12 +151,15 @@ class Socket {
      */
     removeAllListeners(eventName) {
         if (!eventName || eventName === 'message') {
-            this.onmessage = noop;
-        } else if (!eventName || eventName === 'close') {
-            this.onclose = noop;
-        } else if (!eventName || eventName === 'ping') {
+            this.internalOnMessage = noop;
+        }
+		if (!eventName || eventName === 'close') {
+            this.internalOnClose = noop;
+        }
+		if (!eventName || eventName === 'ping') {
             this.onping = noop;
-        } else if (!eventName || eventName === 'pong') {
+        }
+		if (!eventName || eventName === 'pong') {
             this.onpong = noop;
         }
         return this;
@@ -142,16 +173,13 @@ class Socket {
      * @public
      */
     removeListener(eventName, cb) {
-        if (eventName === 'message' && this.onmessage === cb) {
-            this.onmessage = noop;
-        }
-        if (eventName === 'close' && this.onclose === cb) {
-            this.onclose = noop;
-        }
-        if (eventName === 'ping' && this.onping === cb) {
+        if (eventName === 'message' && this.internalOnMessage === cb) {
+            this.internalOnMessage = noop;
+        } else if (eventName === 'close' && this.internalOnClose === cb) {
+            this.internalOnClose = noop;
+        } else if (eventName === 'ping' && this.onping === cb) {
             this.onping = noop;
-        }
-        if (eventName === 'pong' && this.onpong === cb) {
+        } else if (eventName === 'pong' && this.onpong === cb) {
             this.onpong = noop;
         }
         return this;
@@ -176,7 +204,9 @@ class Socket {
         }
 
         const binary = options && options.binary || typeof message !== 'string';
-        this.nativeServer.send(this.nativeSocket, message, binary ? exports.OPCODE_BINARY : exports.OPCODE_TEXT, cb);
+        this.nativeServer.send(this.nativeSocket, message, binary ? Socket.OPCODE_BINARY : Socket.OPCODE_TEXT, cb ? (() => {
+            process.nextTick(cb);
+        }) : undefined);
     }
 
     /**
@@ -208,7 +238,7 @@ class Socket {
             return;
         }
 
-        this.nativeServer.send(this.nativeSocket, message, exports.OPCODE_PING);
+        this.nativeServer.send(this.nativeSocket, message, Socket.OPCODE_PING);
     }
 
     /**
@@ -217,7 +247,7 @@ class Socket {
      * @public
      */
     get _socket() {
-        const address = this.nativeServer.getAddress(this.nativeSocket);
+		const address = this.nativeServer ? this.nativeServer.getAddress(this.nativeSocket) : new Array(3);
         return {
             remotePort: address[0],
             remoteAddress: address[1],
@@ -226,18 +256,10 @@ class Socket {
     }
 
     /**
-     * Static and per-instance readyState constants
+     * Per-instance readyState constants
      *
      * @public
      */
-    static get OPEN() {
-        return 1;
-    }
-
-    static get CLOSED() {
-        return 0;
-    }
-
     get OPEN() {
         return Socket.OPEN;
     }
@@ -247,7 +269,7 @@ class Socket {
     }
 
     /**
-     * Returns the state of the socket (OPEN or CLOSED)
+     * Returns the state of the socket (OPEN or CLOSED).
      *
      * @public
      */
@@ -283,16 +305,16 @@ class Server extends EventEmitter {
     constructor(options, callback) {
         super();
 
-        var nativeOptions = exports.PERMESSAGE_DEFLATE;
+        var nativeOptions = Socket.PERMESSAGE_DEFLATE;
         if (options.perMessageDeflate !== undefined) {
             if (options.perMessageDeflate === false) {
                 nativeOptions = 0;
             } else {
                 if (options.perMessageDeflate.serverNoContextTakeover === true) {
-                    nativeOptions |= exports.SERVER_NO_CONTEXT_TAKEOVER;
+                    nativeOptions |= Socket.SERVER_NO_CONTEXT_TAKEOVER;
                 }
                 if (options.perMessageDeflate.clientNoContextTakeover === true) {
-                    nativeOptions |= exports.CLIENT_NO_CONTEXT_TAKEOVER;
+                    nativeOptions |= Socket.CLIENT_NO_CONTEXT_TAKEOVER;
                 }
             }
         }
@@ -332,10 +354,7 @@ class Server extends EventEmitter {
                                         this.emit('connection', ws);
                                     });
                                 } else {
-                                    // todo: send code & message
-                                    if (this._lastUpgradeListener) {
-                                        socket.end();
-                                    }
+									abortConnection(socket, code, name);
                                 }
                             });
                         } else {
@@ -344,10 +363,7 @@ class Server extends EventEmitter {
                                     this.emit('connection', ws);
                                 });
                             } else {
-                                // todo: send code & message
-                                if (this.__lastUpgradeListener) {
-                                    socket.end();
-                                }
+								abortConnection(socket, 400, 'Client verification failed');
                             }
                         }
                     } else {
@@ -357,7 +373,7 @@ class Server extends EventEmitter {
                     }
                 } else {
                     if (this._lastUpgradeListener) {
-                        socket.end();
+						abortConnection(socket, 400, 'URL not supported');
                     }
                 }
             }));
@@ -371,12 +387,12 @@ class Server extends EventEmitter {
 
         this.nativeServer.onDisconnection((nativeSocket, code, message, socket) => {
             socket.nativeServer = socket.nativeSocket = null;
-            socket.onclose(code, message);
+            socket.internalOnClose(code, message);
             this.nativeServer.setData(nativeSocket);
         });
 
         this.nativeServer.onMessage((nativeSocket, message, binary, socket) => {
-            socket.onmessage(binary ? message : message.toString());
+            socket.internalOnMessage(binary ? message : message.toString());
         });
 
         this.nativeServer.onPing((nativeSocket, message, socket) => {
@@ -422,7 +438,7 @@ class Server extends EventEmitter {
         const secKey = request.headers['sec-websocket-key'];
         if (secKey && secKey.length == 24) {
             socket.setNoDelay(this._noDelay);
-            const ticket = this.nativeServer.transfer(socket._handle.fd, socket.ssl ? socket.ssl._external : null);
+            const ticket = this.nativeServer.transfer(socket._handle.fd === -1 ? socket._handle : socket._handle.fd, socket.ssl ? socket.ssl._external : null);
             socket.on('close', (error) => {
                 this._upgradeReq = request;
                 this._upgradeCallback = callback ? callback : noop;
@@ -440,7 +456,7 @@ class Server extends EventEmitter {
      * @public
      */
     prepareMessage(message, binary) {
-        return this.nativeServer.prepareMessage(message, binary ? exports.OPCODE_BINARY : exports.OPCODE_TEXT);
+        return this.nativeServer.prepareMessage(message, binary ? Socket.OPCODE_BINARY : Socket.OPCODE_TEXT);
     }
 
     /**
@@ -476,8 +492,16 @@ class Server extends EventEmitter {
 
         this.nativeServer.close();
     }
-
 }
 
-exports.Server = Server;
-exports.uws = uws;
+Socket.PERMESSAGE_DEFLATE = 1;
+Socket.SERVER_NO_CONTEXT_TAKEOVER = 2;
+Socket.CLIENT_NO_CONTEXT_TAKEOVER = 4;
+Socket.OPCODE_TEXT = 1;
+Socket.OPCODE_BINARY = 2;
+Socket.OPCODE_PING = 9;
+Socket.OPEN = 1;
+Socket.CLOSED = 0;
+Socket.Server = Server;
+Socket.uws = uws;
+module.exports = Socket;

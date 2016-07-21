@@ -41,7 +41,7 @@ class WebSocket
     friend struct std::hash<uWS::WebSocket<IsServer>>;
 private:
     static void onReadable(uv_poll_t *p, int status, int events);
-    void initPoll(Agent<IsServer> *agent, uv_os_fd_t fd, void *ssl, void *perMessageDeflate);
+    void initPoll(Agent<IsServer> *agent, uv_os_sock_t fd, void *ssl, void *perMessageDeflate);
     void link(uv_poll_t *next);
     uv_poll_t *next();
     operator bool();
@@ -56,7 +56,7 @@ public:
     void send(char *message, size_t length, OpCode opCode, void(*callback)(WebSocket<IsServer> webSocket, void *data, bool cancelled) = nullptr, void *callbackData = nullptr, size_t fakedLength = 0);
     void ping(char *message = nullptr, size_t length = 0);
     void sendFragment(char *data, size_t length, OpCode opCode, size_t remainingBytes);
-    static PreparedMessage *prepareMessage(char *data, size_t length, OpCode opCode);
+    static PreparedMessage *prepareMessage(char *data, size_t length, OpCode opCode, bool compressed);
     void sendPrepared(PreparedMessage *preparedMessage);
     static void finalizeMessage(PreparedMessage *preparedMessage);
     void *getData();

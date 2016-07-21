@@ -20,10 +20,11 @@ void Server::acceptHandler(uv_poll_t *p, int status, int events)
     Server *server = (Server *) p->data;
 
     socklen_t listenAddrLength = sizeof(sockaddr_in);
-    uv_os_fd_t serverFd;
+    uv_os_sock_t serverFd;
     uv_fileno((uv_handle_t *) p, &serverFd);
-    uv_os_fd_t clientFd = accept(serverFd, (sockaddr *) &server->listenAddr, &listenAddrLength);
-    if (clientFd == -1) {
+	uv_poll_t *clientPoll = new uv_poll_t;
+    uv_os_sock_t clientFd = accept(serverFd, (sockaddr *) &server->listenAddr, &listenAddrLength);
+    if (uv_poll_init_socket(server->loop, clientPoll, clientFd)) {
         return;
     }
 
@@ -35,13 +36,10 @@ void Server::acceptHandler(uv_poll_t *p, int status, int events)
     void *ssl = nullptr;
     if (server->sslContext) {
         ssl = server->sslContext.newSSL(clientFd);
-        if (SSL_accept((SSL *) ssl) <= 0) {
-            SSL_free((SSL *) ssl);
-            return;
-        }
+        SSL_set_accept_state((SSL *) ssl);
     }
 
-    new HTTPSocket(clientFd, server, ssl);
+    new HTTPSocket(clientPoll, server, ssl);
 }
 
 void Server::upgradeHandler(Server *server)
@@ -53,7 +51,7 @@ void Server::upgradeHandler(Server *server)
         server->upgradeQueue.pop();
 
         unsigned char shaInput[] = "XXXXXXXXXXXXXXXXXXXXXXXX258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-        memcpy(shaInput, upgradeRequest.sslKey.c_str(), 24);
+        memcpy(shaInput, upgradeRequest.secKey.data(), 24);
         unsigned char shaDigest[SHA_DIGEST_LENGTH];
         SHA1(shaInput, sizeof(shaInput) - 1, shaDigest);
 
@@ -62,18 +60,22 @@ void Server::upgradeHandler(Server *server)
         memcpy(server->upgradeBuffer + 125, "\r\n", 2);
         size_t upgradeResponseLength = 127;
 
+        // Latin-1 µ = \xB5 but Autobahn crashes on this char
+        static char stamp[] = "Server: uWebSockets\r\n\r\n";
+
         // Note: This could be moved into Extensions.cpp as a "decorator" if we get more complex extension support
         PerMessageDeflate *perMessageDeflate = nullptr;
         ExtensionsParser extensionsParser(upgradeRequest.extensions.c_str());
         if ((server->options & PERMESSAGE_DEFLATE) && extensionsParser.perMessageDeflate) {
             std::string response;
             perMessageDeflate = new PerMessageDeflate(extensionsParser, server->options, response);
-            response.append("\r\n\r\n");
+            response.append("\r\n");
+			response.append(stamp);
             memcpy(server->upgradeBuffer + 127, response.data(), response.length());
             upgradeResponseLength += response.length();
         } else {
-            memcpy(server->upgradeBuffer + 127, "\r\n", 2);
-            upgradeResponseLength += 2;
+            memcpy(server->upgradeBuffer + 127, stamp, sizeof(stamp) - 1);
+            upgradeResponseLength += sizeof(stamp) - 1;
         }
 
         uv_poll_t *clientPoll = new uv_poll_t;
@@ -91,8 +93,12 @@ void Server::upgradeHandler(Server *server)
     server->upgradeQueueMutex.unlock();
 }
 
-Server::Server(int port, bool master, int options, int maxPayload, SSLContext sslContext) : port(port), Agent(master, options, maxPayload, sslContext)
+Server::Server(int port, bool master, unsigned int options, unsigned int maxPayload, SSLContext sslContext) : port(port), Agent(master, options, maxPayload, sslContext)
 {
+#ifdef NODEJS_WINDOWS
+    options &= ~PERMESSAGE_DEFLATE;
+#endif
+
     loop = master ? uv_default_loop() : uv_loop_new();
 
     recvBuffer = new char[LARGE_BUFFER_SIZE + Parser::CONSUME_POST_PADDING];
@@ -105,12 +111,12 @@ Server::Server(int port, bool master, int options, int maxPayload, SSLContext ss
     onMessage([](ServerSocket webSocket, char *message, size_t length, OpCode opCode) {});
     onPing([](ServerSocket webSocket, char *message, size_t length) {});
     onPong([](ServerSocket webSocket, char *message, size_t length) {});
-    onUpgrade([this](uv_os_fd_t fd, const char *secKey, void *ssl, const char *extensions, size_t extensionsLength) {
+    onUpgrade([this](uv_os_sock_t fd, const char *secKey, void *ssl, const char *extensions, size_t extensionsLength) {
         upgrade(fd, secKey, ssl, extensions, extensionsLength);
     });
 
     if (port) {
-        uv_os_fd_t listenFd = socket(AF_INET, SOCK_STREAM, 0);
+        uv_os_sock_t listenFd = socket(AF_INET, SOCK_STREAM, 0);
         listenAddr.sin_family = AF_INET;
         listenAddr.sin_addr.s_addr = INADDR_ANY;
         listenAddr.sin_port = htons(port);
@@ -138,6 +144,12 @@ Server::Server(int port, bool master, int options, int maxPayload, SSLContext ss
             upgradeHandler((Server *) a->data);
         });
     }
+
+    // todo: move this into PerMessageDeflate class
+    writeStream = {};
+    if (deflateInit2(&writeStream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -15, MAX_MEM_LEVEL, Z_DEFAULT_STRATEGY) != Z_OK) {
+        throw ERR_ZLIB;
+    }
 }
 
 Server::~Server()
@@ -150,14 +162,17 @@ Server::~Server()
     if (!master) {
         uv_loop_delete(loop);
     }
+
+    // todo: move this into PerMessageDeflate class
+    deflateEnd(&writeStream);
 }
 
-void Server::onUpgrade(std::function<void (uv_os_fd_t, const char *, void *, const char *, size_t)> upgradeCallback)
+void Server::onUpgrade(std::function<void (uv_os_sock_t, const char *, void *, const char *, size_t)> upgradeCallback)
 {
     this->upgradeCallback = upgradeCallback;
 }
 
-void Server::upgrade(uv_os_fd_t fd, const char *secKey, void *ssl, const char *extensions, size_t extensionsLength)
+void Server::upgrade(uv_os_sock_t fd, const char *secKey, void *ssl, const char *extensions, size_t extensionsLength)
 {
     upgradeQueueMutex.lock();
     upgradeQueue.push({fd, std::string(secKey, 24), ssl, std::string(extensions, extensionsLength)});

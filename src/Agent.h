@@ -6,17 +6,20 @@
 #include <functional>
 #include <uv.h>
 #include <openssl/ossl_typ.h>
+#include <zlib.h>
 
+#include "Network.h"
 #include "WebSocket.h"
 
 namespace uWS {
 
 enum Error {
     ERR_LISTEN,
-    ERR_SSL
+    ERR_SSL,
+	ERR_ZLIB
 };
 
-enum Options : int {
+enum Options : unsigned int {
     NO_OPTIONS = 0,
     PERMESSAGE_DEFLATE = 1,
     SERVER_NO_CONTEXT_TAKEOVER = 2,
@@ -28,7 +31,7 @@ class SSLContext {
 private:
     SSL_CTX *sslContext = nullptr;
 public:
-    SSLContext(std::string certFileName, std::string keyFileName);
+    SSLContext(std::string certChainFileName, std::string keyFileName);
     SSLContext() = default;
     SSLContext(const SSLContext &other);
     ~SSLContext();
@@ -36,6 +39,27 @@ public:
         return sslContext;
     }
     void *newSSL(int fd);
+};
+
+template <bool IsServer>
+struct WebSocketIterator {
+	WebSocket<IsServer> webSocket;
+	WebSocketIterator(WebSocket<IsServer> webSocket) : webSocket(webSocket) {
+
+	}
+
+	WebSocket<IsServer> &operator*() {
+		return webSocket;
+	}
+
+	bool operator!=(const WebSocketIterator<IsServer> &other) {
+		return !(webSocket == other.webSocket);
+	}
+
+	WebSocketIterator<IsServer> &operator++() {
+		webSocket = webSocket.next();
+		return *this;
+	}
 };
 
 template <bool IsServer>
@@ -49,8 +73,9 @@ protected:
     uv_loop_t *loop;
     uv_poll_t *clients = nullptr;
     uv_async_t closeAsync;
+	z_stream writeStream;
     bool master, forceClose;
-    int options, maxPayload;
+    unsigned int options, maxPayload;
     SSLContext sslContext;
     static void closeHandler(Agent<IsServer> *agent);
 
@@ -64,7 +89,7 @@ protected:
     std::function<void(WebSocket<IsServer>, char *, size_t)> pingCallback;
     std::function<void(WebSocket<IsServer>, char *, size_t)> pongCallback;
 public:
-    Agent(bool master, int options = 0, int maxPayload = 1048576, SSLContext sslContext = SSLContext()) : master(master), options(options), maxPayload(maxPayload), sslContext(sslContext) {};
+    Agent(bool master, unsigned int options = 0, unsigned int maxPayload = 1048576, SSLContext sslContext = SSLContext()) : master(master), options(options), maxPayload(maxPayload), sslContext(sslContext) {};
     Agent(const Agent &server) = delete;
     Agent &operator=(const Agent &server) = delete;
     void onConnection(std::function<void(WebSocket<IsServer>)> connectionCallback);
@@ -74,7 +99,16 @@ public:
     void onPong(std::function<void(WebSocket<IsServer>, char *, size_t)> pongCallback);
     void close(bool force = false);
     void run();
+	size_t compress(char *src, size_t srcLength, char *dst);
     void broadcast(char *data, size_t length, OpCode opCode);
+
+    WebSocketIterator<IsServer> begin() {
+        return WebSocketIterator<IsServer>(clients);
+    }
+
+    WebSocketIterator<IsServer> end() {
+        return WebSocketIterator<IsServer>(nullptr);
+    }
 };
 
 }

@@ -1,6 +1,6 @@
+#include "Network.h"
 #include "WebSocket.h"
 #include "Server.h"
-#include "Network.h"
 #include "Extensions.h"
 #include "SocketData.h"
 #include "Parser.h"
@@ -19,13 +19,14 @@ void WebSocket<IsServer>::send(char *message, size_t length, OpCode opCode, void
         reportedLength = fakedLength;
     }
 
-    if (length <= Agent<IsServer>::SHORT_BUFFER_SIZE - 10) {
+	// 3 extra bytes needed in case of overflow in unmask_inplace in formatMessage
+    if (length <= Agent<IsServer>::SHORT_BUFFER_SIZE - (MAX_HEADER_SIZE + 3)) {
         SocketData<IsServer> *socketData = (SocketData<IsServer> *) p->data;
         char *sendBuffer = socketData->agent->sendBuffer;
-        write(sendBuffer, Parser::formatMessage<IsServer>(sendBuffer, message, length, opCode, reportedLength), false, callback, callbackData);
+        write(sendBuffer, Parser::formatMessage<IsServer>(sendBuffer, message, length, opCode, reportedLength, false), false, callback, callbackData);
     } else {
-        char *buffer = new char[sizeof(typename SocketData<IsServer>::Queue::Message) + length + 10] + sizeof(typename SocketData<IsServer>::Queue::Message);
-        write(buffer, Parser::formatMessage<IsServer>(buffer, message, length, opCode, reportedLength), true, callback, callbackData);
+        char *buffer = new char[sizeof(typename SocketData<IsServer>::Queue::Message) + length + (MAX_HEADER_SIZE + 3)] + sizeof(typename SocketData<IsServer>::Queue::Message);
+        write(buffer, Parser::formatMessage<IsServer>(buffer, message, length, opCode, reportedLength, false), true, callback, callbackData);
     }
 }
 
@@ -36,11 +37,11 @@ void WebSocket<IsServer>::ping(char *message, size_t length)
 }
 
 template <bool IsServer>
-PreparedMessage *WebSocket<IsServer>::prepareMessage(char *data, size_t length, OpCode opCode)
+PreparedMessage *WebSocket<IsServer>::prepareMessage(char *data, size_t length, OpCode opCode, bool compressed)
 {
     PreparedMessage *preparedMessage = new PreparedMessage;
-    preparedMessage->buffer = new char[sizeof(typename SocketData<IsServer>::Queue::Message) + length + 10] + sizeof(typename SocketData<IsServer>::Queue::Message);
-    preparedMessage->length = Parser::formatMessage<IsServer>(preparedMessage->buffer, data, length, opCode, length);
+    preparedMessage->buffer = new char[sizeof(typename SocketData<IsServer>::Queue::Message) + length + (MAX_HEADER_SIZE + 3)] + sizeof(typename SocketData<IsServer>::Queue::Message);
+    preparedMessage->length = Parser::formatMessage<IsServer>(preparedMessage->buffer, data, length, opCode, length, compressed);
     preparedMessage->references = 1;
     return preparedMessage;
 }
@@ -126,14 +127,19 @@ void WebSocket<IsServer>::handleFragment(const char *fragment, size_t length, Op
         }
 
         if (!remainingBytes && fin && !socketData->buffer.length()) {
-            if (opCode == 1 && !isValidUtf8((unsigned char *) fragment, length)) {
+			if ((socketData->agent->maxPayload && length > socketData->agent->maxPayload) || (opCode == 1 && !isValidUtf8((unsigned char *) fragment, length))) {
                 close(true, 1006);
                 return;
             }
 
             socketData->agent->messageCallback(p, (char *) fragment, length, opCode);
         } else {
-            socketData->buffer.append(fragment, socketData->agent->maxPayload ? std::min(length, socketData->agent->maxPayload - socketData->buffer.length()) : length);
+			if (socketData->agent->maxPayload && length + socketData->buffer.length() > socketData->agent->maxPayload) {
+                close(true, 1006);
+                return;
+            }
+
+            socketData->buffer.append(fragment, length);
             if (!remainingBytes && fin) {
 
                 // Chapter 6
@@ -174,7 +180,7 @@ void WebSocket<IsServer>::handleFragment(const char *fragment, size_t length, Op
 template <bool IsServer>
 Address WebSocket<IsServer>::getAddress()
 {
-    uv_os_fd_t fd;
+    uv_os_sock_t fd;
     uv_fileno((uv_handle_t *) p, &fd);
 
     sockaddr_storage addr;
@@ -207,7 +213,7 @@ void WebSocket<IsServer>::onReadable(uv_poll_t *p, int status, int events)
 
     char *src = socketData->agent->recvBuffer;
     memcpy(src, socketData->spill, socketData->spillLength);
-    uv_os_fd_t fd;
+    uv_os_sock_t fd;
     uv_fileno((uv_handle_t *) p, &fd);
 
     // this whole SSL part should be shared with HTTPSocket
@@ -226,7 +232,7 @@ void WebSocket<IsServer>::onReadable(uv_poll_t *p, int status, int events)
         received = recv(fd, src + socketData->spillLength, Server::LARGE_BUFFER_SIZE - socketData->spillLength, 0);
     }
 
-    if (received == -1 || received == 0) {
+    if (received == SOCKET_ERROR || received == 0) {
         // do we have a close frame in our buffer, and did we already set the state as CLOSING?
         if (socketData->state == CLOSING && socketData->controlBuffer.length()) {
             std::tuple<unsigned short, char *, size_t> closeFrame = Parser::parseCloseFrame(socketData->controlBuffer);
@@ -264,7 +270,7 @@ void WebSocket<IsServer>::onReadable(uv_poll_t *p, int status, int events)
 }
 
 template <bool IsServer>
-void WebSocket<IsServer>::initPoll(Agent<IsServer> *agent, uv_os_fd_t fd, void *ssl, void *perMessageDeflate)
+void WebSocket<IsServer>::initPoll(Agent<IsServer> *agent, uv_os_sock_t fd, void *ssl, void *perMessageDeflate)
 {
     uv_poll_init_socket(agent->loop, p, fd);
     SocketData<IsServer> *socketData = new SocketData<IsServer>;
@@ -273,7 +279,9 @@ void WebSocket<IsServer>::initPoll(Agent<IsServer> *agent, uv_os_fd_t fd, void *
 
     socketData->ssl = (SSL *) ssl;
     if (socketData->ssl) {
+#ifndef NODEJS_WINDOWS
         SSL_set_fd(socketData->ssl, fd);
+#endif
         SSL_set_mode(socketData->ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
     }
 
@@ -323,7 +331,7 @@ void WebSocket<IsServer>::setData(void *data)
 template <bool IsServer>
 void WebSocket<IsServer>::close(bool force, unsigned short code, char *data, size_t length)
 {
-    uv_os_fd_t fd;
+    uv_os_sock_t fd;
     uv_fileno((uv_handle_t *) p, &fd);
     SocketData<IsServer> *socketData = (SocketData<IsServer> *) p->data;
 
@@ -396,9 +404,9 @@ void WebSocket<IsServer>::close(bool force, unsigned short code, char *data, siz
             *((uint16_t *) &sendBuffer[length + SHORT_MESSAGE_HEADER[!IsServer]]) = htons(code);
             memcpy(&sendBuffer[length + SHORT_MESSAGE_HEADER[!IsServer] + 2], data, length - 2);
         }
-        write((char *) sendBuffer, Parser::formatMessage<IsServer>(sendBuffer, &sendBuffer[length + SHORT_MESSAGE_HEADER[!IsServer]], length, CLOSE, length), false, [](WebSocket<IsServer> webSocket, void *data, bool cancelled) {
+        write((char *) sendBuffer, Parser::formatMessage<IsServer>(sendBuffer, &sendBuffer[length + SHORT_MESSAGE_HEADER[!IsServer]], length, CLOSE, length, false), false, [](WebSocket<IsServer> webSocket, void *data, bool cancelled) {
             if (!cancelled) {
-                uv_os_fd_t fd;
+                uv_os_sock_t fd;
                 uv_fileno((uv_handle_t *) webSocket.p, &fd);
                 SocketData<IsServer> *socketData = (SocketData<IsServer> *) webSocket.p->data;
                 if (socketData->ssl) {
@@ -414,7 +422,7 @@ void WebSocket<IsServer>::close(bool force, unsigned short code, char *data, siz
 template <bool IsServer>
 void WebSocket<IsServer>::write(char *data, size_t length, bool transferOwnership, void(*callback)(WebSocket<IsServer> webSocket, void *data, bool cancelled), void *callbackData, bool preparedMessage)
 {
-    uv_os_fd_t fd;
+    uv_os_sock_t fd;
     uv_fileno((uv_handle_t *) p, &fd);
 
     ssize_t sent = 0;
@@ -441,7 +449,7 @@ void WebSocket<IsServer>::write(char *data, size_t length, bool transferOwnershi
 
     } else {
         // not everything was sent
-        if (sent == -1) {
+        if (sent == SOCKET_ERROR) {
             // check to see if any error occurred
             if (socketData->ssl) {
                 int error = SSL_get_error(socketData->ssl, sent);
@@ -526,7 +534,7 @@ void WebSocket<IsServer>::write(char *data, size_t length, bool transferOwnershi
                     }
                 }
 
-                uv_os_fd_t fd;
+                uv_os_sock_t fd;
                 uv_fileno((uv_handle_t *) handle, &fd);
 
                 do {
@@ -547,7 +555,7 @@ void WebSocket<IsServer>::write(char *data, size_t length, bool transferOwnershi
 
                         socketData->messageQueue.pop();
                     } else {
-                        if (sent == -1) {
+                        if (sent == SOCKET_ERROR) {
                             // check to see if any error occurred
                             if (socketData->ssl) {
                                 int error = SSL_get_error(socketData->ssl, sent);

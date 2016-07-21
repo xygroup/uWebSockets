@@ -1,3 +1,4 @@
+#include "../src/Network.h"
 #include "../src/uWS.h"
 
 #include <node.h>
@@ -10,8 +11,7 @@
 #include <openssl/ssl.h>
 #include <openssl/bio.h>
 
-// we depend on UNIX dup and int as fd
-#include <unistd.h>
+#include <uv.h>
 
 using namespace std;
 using namespace v8;
@@ -177,8 +177,13 @@ public:
             data = node::Buffer::Data(value);
             length = node::Buffer::Length(value);
         } else if (value->IsTypedArray()) {
-            Local<ArrayBufferView> arrayBuffer = Local<ArrayBufferView>::Cast(value);
-            ArrayBuffer::Contents contents = arrayBuffer->Buffer()->GetContents();
+            Local<ArrayBufferView> arrayBufferView = Local<ArrayBufferView>::Cast(value);
+            ArrayBuffer::Contents contents = arrayBufferView->Buffer()->GetContents();
+            length = contents.ByteLength();
+            data = (char *) contents.Data();
+        } else if (value->IsArrayBuffer()) {
+            Local<ArrayBuffer> arrayBuffer = Local<ArrayBuffer>::Cast(value);
+            ArrayBuffer::Contents contents = arrayBuffer->GetContents();
             length = contents.ByteLength();
             data = (char *) contents.Data();
         } else {
@@ -218,17 +223,40 @@ void upgrade(const FunctionCallbackInfo<Value> &args)
     NativeString secKey(args[1]);
     NativeString extensions(args[2]);
 
-    int *fd = (int *) ticket->GetAlignedPointerFromInternalField(0);
+	uv_os_sock_t *fd = (uv_os_sock_t *) ticket->GetAlignedPointerFromInternalField(0);
     SSL *ssl = (SSL *) ticket->GetAlignedPointerFromInternalField(1);
 
-    server->upgrade(*fd, secKey.getData(), ssl, extensions.getData(), extensions.getLength());
+    if (*fd != INVALID_SOCKET) {
+        server->upgrade(*fd, secKey.getData(), ssl, extensions.getData(), extensions.getLength());
+    } else {
+        if (ssl) {
+            SSL_free(ssl);
+        }
+    }
     delete fd;
+}
+
+uv_handle_t *getTcpHandle(void *handleWrap)
+{
+    volatile char *memory = (volatile char *) handleWrap;
+    for (volatile uv_handle_t *tcpHandle = (volatile uv_handle_t *) memory; tcpHandle->type != UV_TCP
+         || tcpHandle->data != handleWrap || tcpHandle->loop != uv_default_loop(); tcpHandle = (volatile uv_handle_t *) memory) {
+        memory++;
+    }
+    return (uv_handle_t *) memory;
 }
 
 void transfer(const FunctionCallbackInfo<Value> &args)
 {
-    /* fd, SSL */
-    int *fd = new int(dup(args[0]->IntegerValue()));
+	/* (_handle.fd OR _handle), SSL */
+    uv_os_sock_t *fd = new uv_os_sock_t;
+    if (args[0]->IsObject()) {
+		uv_fileno(getTcpHandle(args[0]->ToObject()->GetAlignedPointerFromInternalField(0)), (uv_os_fd_t *) fd);
+    } else {
+        *fd = args[0]->IntegerValue();
+    }
+
+    *fd = dup(*fd);
     SSL *ssl = nullptr;
     if (args[1]->IsExternal()) {
         ssl = (SSL *) args[1].As<External>()->Value();
@@ -301,7 +329,7 @@ void prepareMessage(const FunctionCallbackInfo<Value> &args)
     OpCode opCode = (uWS::OpCode) args[1]->IntegerValue();
     NativeString nativeString(args[0]);
     Local<Object> preparedMessage = Local<Object>::New(args.GetIsolate(), persistentTicket)->Clone();
-    preparedMessage->SetAlignedPointerInInternalField(0, uWS::ServerSocket::prepareMessage(nativeString.getData(), nativeString.getLength(), opCode));
+    preparedMessage->SetAlignedPointerInInternalField(0, uWS::ServerSocket::prepareMessage(nativeString.getData(), nativeString.getLength(), opCode, false));
     args.GetReturnValue().Set(preparedMessage);
 }
 

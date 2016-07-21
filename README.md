@@ -1,5 +1,5 @@
 <div align="center"><img src="logo.png"/></div>
-`µWS` is one of the most lightweight, efficient & scalable WebSocket server implementations available. It features an easy-to-use, fully async object-oriented interface and scales to millions of connections using only a fraction of memory compared to the competition. While performance and scalability are two of our top priorities, we consider security, stability and standards compliance more important. License is zlib/libpng (very permissive & suits commercial applications).
+`µWS` is one of the most lightweight, efficient & scalable WebSocket server implementations available. It features an easy-to-use, fully async object-oriented interface and scales to millions of connections using only a fraction of memory compared to the competition. While performance and scalability are two of our top priorities, we consider security, stability and standards compliance paramount. License is zlib/libpng (very permissive & suits commercial applications).
 
 * Autobahn tests [all pass](http://htmlpreview.github.io/?https://github.com/alexhultman/uWebSockets/blob/master/autobahn/index.html).
 * Linux, OS X & Windows support.
@@ -8,7 +8,7 @@
 * SSL/TLS support & integrates with foreign HTTPS servers.
 * Permessage-deflate built-in.
 * Node.js binding exposed as the well-known `ws` interface.
-* 10-30x faster than `ws` (if they are "fastest", we are "fastester").
+* 10-300x faster than `ws` (if they are "fastest", we are "fastester").
 * Optional engine in projects like Socket.IO, Primus & SocketCluster.
 
 [![npm version](https://badge.fury.io/js/uws.svg)](https://badge.fury.io/js/uws) [![](https://api.travis-ci.org/alexhultman/uWebSockets.svg?branch=master)](https://travis-ci.org/alexhultman/uWebSockets) [![](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/alexhultman/uWebSockets)
@@ -23,8 +23,19 @@ Kaazing Gateway Community 5.0.0 | µWS is **62x** as lightweight | µWS is **15x
 
 *Benchmarks are run with default settings in all libraries, except for `ws` which is run with the native performance addons. These results were achieved with the native C++ server, not the Node.js addon. Expect worse performance and scalability when using Node.js (don't worry, the Node.js addon will run circles around `ws`).*
 
-## What others are saying
-**“***With changing one letter in the code from "ws" to "uws" I've been able to serve twice as many players for the same cost.***”** - Rezoner / [wilds.io](http://wilds.io)
+## Built with µWS
+<table>
+<tr>
+<td><img src="https://avatars3.githubusercontent.com/u/9024218?v=3&s=200" height="128" /></td>
+<td><img src="https://camo.githubusercontent.com/1e6a52dbf401b60f5979aec6416967a42aab8e53/68747470733a2f2f7261772e6769746875622e636f6d2f536f636b6574436c75737465722f736f636b6574636c75737465722f6d61737465722f6173736574732f6c6f676f2e706e67" height="128" /></td>
+<td><img src="https://scontent-ams3-1.xx.fbcdn.net/v/t1.0-1/c43.0.160.160/p160x160/13237648_988335957953290_8996720199169630743_n.png?oh=3a190760956a38db5216efdee1b42646&oe=58363BF4" height="128" /></td>
+</tr>
+<tr>
+<td align="center"><a href="https://deepstream.io/">deepstream.io</a></td>
+<td align="center"><a href="http://socketcluster.io/#!/">SocketCluster</a></td>
+<td align="center"><a href="http://wilds.io/">wilds.io</a></td>
+</tr>
+</table>
 
 ## Usage
 
@@ -105,33 +116,24 @@ int main()
 * Small & efficient code base.
 
 ## Installation
-### Node.js
+### Node.js developers
 [![](https://nodei.co/npm/uws.png)](https://www.npmjs.com/package/uws)
 ```
 npm install --save uws
 ```
 
 * Node.js 4.x, 5.x & 6.x supported
-* Linux & Mac OS X 10.7+
+* Linux, Mac OS X & Windows supported
 
-*Node.js is broken on Windows and needs to be fixed for us to support the platform*
+*Currently the Windows version only runs on Node.js 6.3.0+. SSL support will come to the Windows version with Node.js 6.4.0+*
 
-#### Manual compilation
-If you for some reason want and/or need to build the Node.js addon from source:
-
-* Jump to nodejs folder:
-  - `cd uWebSockets/nodejs`
-* Compile the project:
-  - `make`
-
-This populates the nodejs/dist folder with binaries.
-
-### Native developers
+### C++ developers
 #### Dependencies
 First of all you need to install the required dependencies. On Unix systems this is typically done via package managers, like [homebrew](http://brew.sh) in the case of OS X or `dnf` in the case of Fedora Linux. On Windows you need to search the web for pre-compiled binaries or simply compile the dependencies yourself.
 
 * libuv 1.x
 * OpenSSL 1.0.x
+* zlib 1.x
 * CMake 3.x
 
 #### Compilation

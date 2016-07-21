@@ -24,7 +24,7 @@ private:
     static void acceptHandler(uv_poll_t *p, int status, int events);
     static void upgradeHandler(Server *server);
 
-    std::function<void(uv_os_fd_t, const char *, void *, const char *, size_t)> upgradeCallback;
+    std::function<void(uv_os_sock_t, const char *, void *, const char *, size_t)> upgradeCallback;
 
     char *upgradeBuffer;
 
@@ -36,8 +36,8 @@ private:
     int port;
 
     struct UpgradeRequest {
-        uv_os_fd_t fd;
-        std::string sslKey;
+        uv_os_sock_t fd;
+        std::string secKey;
         void *ssl;
         std::string extensions;
     };
@@ -47,12 +47,12 @@ private:
     std::mutex upgradeQueueMutex;
 
 public:
-    Server(int port = 0, bool master = true, int options = 0, int maxPayload = 1048576, SSLContext sslContext = SSLContext());
+    Server(int port = 0, bool master = true, unsigned int options = 0, unsigned int maxPayload = 1048576, SSLContext sslContext = SSLContext());
     ~Server();
     Server(const Server &server) = delete;
     Server &operator=(const Server &server) = delete;
-    void onUpgrade(std::function<void(uv_os_fd_t, const char *, void *, const char *, size_t)> upgradeCallback);
-    void upgrade(uv_os_fd_t fd, const char *secKey, void *ssl = nullptr, const char *extensions = nullptr, size_t extensionsLength = 0);
+    void onUpgrade(std::function<void(uv_os_sock_t, const char *, void *, const char *, size_t)> upgradeCallback);
+    void upgrade(uv_os_sock_t fd, const char *secKey, void *ssl = nullptr, const char *extensions = nullptr, size_t extensionsLength = 0);
 };
 
 }

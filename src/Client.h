@@ -19,9 +19,10 @@ class Client : public Agent<false>
     template <bool IsServer> friend class uWS::Agent;
 private:
     std::function<void()> connectionFailureCallback;
+	int pmdMaxWindowBits;
 
 public:
-    Client(bool master = true, int options = 0, int maxPayload = 1048576);
+    Client(bool master = true, unsigned int options = 0, int pmdMaxWindowBits = 0, unsigned int maxPayload = 1048576);
     ~Client();
     Client(const Client &client) = delete;
     Client &operator=(const Client &client) = delete;

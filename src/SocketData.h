@@ -10,7 +10,8 @@ class Agent;
 
 enum SendFlags {
     SND_CONTINUATION = 1,
-    SND_NO_FIN = 2
+    SND_NO_FIN = 2,
+	SND_COMPRESSED = 64
 };
 
 enum SocketState : int {

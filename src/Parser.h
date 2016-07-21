@@ -1,12 +1,13 @@
 #ifndef PARSER_H
 #define PARSER_H
 
+#include <iostream>
 #include "SocketData.h"
 #include "UTF8.h"
 #include "Network.h"
 #include <uv.h>
 
-#define STRICT
+#define STRICT_WS
 
 namespace uWS {
 
@@ -14,6 +15,7 @@ namespace uWS {
 const int SHORT_MESSAGE_HEADER[2] = { 2, 6 };
 const int MEDIUM_MESSAGE_HEADER[2] = { 4, 8 };
 const int LONG_MESSAGE_HEADER[2] = { 10, 14 };
+const int MAX_HEADER_SIZE = 14;
 
 class Parser {
 private:
@@ -183,7 +185,7 @@ public:
                     socketData->pmd->compressedFrame = rsv1(frame);
                 }
 
-    #ifdef STRICT
+    #ifdef STRICT_WS
                 // invalid reserved bits
                 if ((rsv1(frame) && !socketData->pmd) || rsv2(frame) || rsv3(frame)) {
                     WebSocket<IsServer>(p).close(true, 1006);
@@ -205,7 +207,7 @@ public:
                         socketData->opCode[(unsigned char) ++socketData->opStack] = (OpCode) opCode(frame);
                     }
 
-    #ifdef STRICT
+    #ifdef STRICT_WS
                     // Case 5.18
                     if (socketData->opStack == 0 && !lastFin && fin(frame)) {
                         WebSocket<IsServer>(p).close(true, 1006);
@@ -322,7 +324,7 @@ public:
     }
 
     template <bool IsServer>
-    static inline size_t formatMessage(char *dst, char *src, size_t length, OpCode opCode, size_t reportedLength)
+    static inline size_t formatMessage(char *dst, char *src, size_t length, OpCode opCode, size_t reportedLength, bool compressed)
     {
         size_t messageLength;
         size_t headerLength;
@@ -340,7 +342,7 @@ public:
         }
 
         int flags = 0;
-        dst[0] = (flags & SND_NO_FIN ? 0 : 128);
+		dst[0] = (flags & SND_NO_FIN ? 0 : 128) | (compressed ? SND_COMPRESSED : 0);
         if (!(flags & SND_CONTINUATION)) {
             dst[0] |= opCode;
         }
