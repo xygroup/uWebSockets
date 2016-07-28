@@ -19,6 +19,7 @@ cc_library(
         "-DNO_ZLIB",
     ],
     deps = ["//libuv", "//sha1"],
+    linkstatic = 1,
     visibility = ["//visibility:private"],
 )
 
@@ -29,4 +30,3 @@ cc_binary(
         ":uWebSockets",
     ],
 )
-

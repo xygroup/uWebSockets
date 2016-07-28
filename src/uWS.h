@@ -47,7 +47,6 @@ class Socket {
     friend struct std::hash<uWS::Socket>;
 protected:
     void *socket;
-    Socket(void *p) : socket(p) {}
     void write(char *data, size_t length, bool transferOwnership, void(*callback)(void *s) = nullptr);
 public:
     struct Address {
@@ -61,7 +60,9 @@ public:
     void send(char *data, size_t length, OpCode opCode, size_t fakedLength = 0);
     void sendFragment(char *data, size_t length, OpCode opCode, size_t remainingBytes);
     void *getData();
+    void *getSocket() { return socket; }
     void setData(void *data);
+    Socket(void *p) : socket(p) {}
     Socket() : socket(nullptr) {}
     bool operator==(const Socket &other) const {return socket == other.socket;}
     bool operator<(const Socket &other) const {return socket < other.socket;}
