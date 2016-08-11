@@ -1,7 +1,9 @@
 #ifndef SOCKETDATA_H
 #define SOCKETDATA_H
 
-#include <openssl/ssl.h>
+#ifndef NO_OPENSSL
+    #include <openssl/ssl.h>
+#endif
 
 namespace uWS {
 
@@ -76,7 +78,11 @@ struct SocketData {
     Queue messageQueue;
     uv_poll_t *next = nullptr, *prev = nullptr;
     void *data = nullptr;
+#ifndef NO_OPENSSL
     SSL *ssl = nullptr;
+#else
+    void *ssl = nullptr;
+#endif
     PerMessageDeflate *pmd = nullptr;
     std::string buffer, controlBuffer;
 };

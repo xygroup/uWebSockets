@@ -7,7 +7,10 @@
 
 #include <iostream>
 #include <algorithm>
-#include <openssl/ssl.h>
+
+#ifndef NO_OPENSSL
+    #include <openssl/ssl.h>
+#endif
 
 namespace uWS {
 
@@ -218,6 +221,7 @@ void WebSocket<IsServer>::onReadable(uv_poll_t *p, int status, int events)
 
     // this whole SSL part should be shared with HTTPSocket
     ssize_t received;
+#ifndef NO_OPENSSL
     if (socketData->ssl) {
         received = SSL_read(socketData->ssl, src + socketData->spillLength, Server::LARGE_BUFFER_SIZE - socketData->spillLength);
         // do not treat SSL_ERROR_WANT_* as hang ups
@@ -229,8 +233,11 @@ void WebSocket<IsServer>::onReadable(uv_poll_t *p, int status, int events)
             }
         }
     } else {
+#endif
         received = recv(fd, src + socketData->spillLength, Server::LARGE_BUFFER_SIZE - socketData->spillLength, 0);
+#ifndef NO_OPENSSL
     }
+#endif
 
     if (received == SOCKET_ERROR || received == 0) {
         // do we have a close frame in our buffer, and did we already set the state as CLOSING?
@@ -277,6 +284,7 @@ void WebSocket<IsServer>::initPoll(Agent<IsServer> *agent, uv_os_sock_t fd, void
     socketData->pmd = (PerMessageDeflate *) perMessageDeflate;
     socketData->agent = agent;
 
+#ifndef NO_OPENSSL
     socketData->ssl = (SSL *) ssl;
     if (socketData->ssl) {
 #ifndef NODEJS_WINDOWS
@@ -284,6 +292,7 @@ void WebSocket<IsServer>::initPoll(Agent<IsServer> *agent, uv_os_sock_t fd, void
 #endif
         SSL_set_mode(socketData->ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
     }
+#endif
 
     p->data = socketData;
     uv_poll_start(p, UV_READABLE, onReadable);
@@ -376,7 +385,9 @@ void WebSocket<IsServer>::close(bool force, unsigned short code, char *data, siz
         });
 
         ::close(fd);
+#ifndef NO_OPENSSL
         SSL_free(socketData->ssl);
+#endif
         socketData->controlBuffer.clear();
 
         // cancel force close timer
@@ -408,10 +419,12 @@ void WebSocket<IsServer>::close(bool force, unsigned short code, char *data, siz
             if (!cancelled) {
                 uv_os_sock_t fd;
                 uv_fileno((uv_handle_t *) webSocket.p, &fd);
+#ifndef NO_OPENSSL
                 SocketData<IsServer> *socketData = (SocketData<IsServer> *) webSocket.p->data;
                 if (socketData->ssl) {
                     SSL_shutdown(socketData->ssl);
                 }
+#endif
                 shutdown(fd, SHUT_WR);
             }
         });
@@ -431,11 +444,15 @@ void WebSocket<IsServer>::write(char *data, size_t length, bool transferOwnershi
         goto queueIt;
     }
 
+#ifndef NO_OPENSSL
     if (socketData->ssl) {
         sent = SSL_write(socketData->ssl, data, length);
     } else {
+#endif
         sent = ::send(fd, data, length, MSG_NOSIGNAL);
+#ifndef NO_OPENSSL
     }
+#endif
 
     if (sent == (int) length) {
         // everything was sent in one go!
@@ -451,12 +468,14 @@ void WebSocket<IsServer>::write(char *data, size_t length, bool transferOwnershi
         // not everything was sent
         if (sent == SOCKET_ERROR) {
             // check to see if any error occurred
+#ifndef NO_OPENSSL
             if (socketData->ssl) {
                 int error = SSL_get_error(socketData->ssl, sent);
                 if (error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE) {
                     goto queueIt;
                 }
             } else {
+#endif
 #ifdef _WIN32
                 if (WSAGetLastError() == WSAENOBUFS || WSAGetLastError() == WSAEWOULDBLOCK) {
 #else
@@ -464,7 +483,9 @@ void WebSocket<IsServer>::write(char *data, size_t length, bool transferOwnershi
 #endif
                     goto queueIt;
                 }
+#ifndef NO_OPENSSL
             }
+#endif
 
             // error sending!
             if (transferOwnership) {
@@ -541,12 +562,15 @@ void WebSocket<IsServer>::write(char *data, size_t length, bool transferOwnershi
                     typename SocketData<IsServer>::Queue::Message *messagePtr = socketData->messageQueue.front();
 
                     ssize_t sent;
+#ifndef NO_OPENSSL
                     if (socketData->ssl) {
                         sent = SSL_write(socketData->ssl, messagePtr->data, messagePtr->length);
                     } else {
+#endif
                         sent = ::send(fd, messagePtr->data, messagePtr->length, MSG_NOSIGNAL);
+#ifndef NO_OPENSSL
                     }
-
+#endif
                     if (sent == (int) messagePtr->length) {
 
                         if (messagePtr->callback) {
@@ -557,12 +581,14 @@ void WebSocket<IsServer>::write(char *data, size_t length, bool transferOwnershi
                     } else {
                         if (sent == SOCKET_ERROR) {
                             // check to see if any error occurred
+#ifndef NO_OPENSSL
                             if (socketData->ssl) {
                                 int error = SSL_get_error(socketData->ssl, sent);
                                 if (error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE) {
                                     return;
                                 }
                             } else {
+#endif
                 #ifdef _WIN32
                                 if (WSAGetLastError() == WSAENOBUFS || WSAGetLastError() == WSAEWOULDBLOCK) {
                 #else
@@ -570,8 +596,9 @@ void WebSocket<IsServer>::write(char *data, size_t length, bool transferOwnershi
                 #endif
                                     return;
                                 }
+#ifndef NO_OPENSSL
                             }
-
+#endif
                             // error sending!
                             uv_poll_start(handle, UV_READABLE, onReadable);
                             return;

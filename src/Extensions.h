@@ -2,7 +2,12 @@
 #define EXTENSIONS_H
 
 #include <string>
-#include <zlib.h>
+
+#ifdef BAZEL
+    #include "external/zlib/zlib.h"
+#else
+    #include <zlib.h>
+#endif
 
 enum ExtensionTokens {
     PERMESSAGE_DEFLATE = 1838,

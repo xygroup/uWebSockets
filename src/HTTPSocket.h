@@ -3,7 +3,12 @@
 
 #include <string>
 #include <vector>
-#include <uv.h>
+
+#ifdef BAZEL
+    #include "libuv/uv.h"
+#else
+    #include <uv.h>
+#endif
 
 namespace uWS {
 

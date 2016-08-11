@@ -5,8 +5,16 @@
 #include <queue>
 #include <string>
 #include <functional>
-#include <uv.h>
-#include <openssl/ossl_typ.h>
+
+#ifdef BAZEL
+    #include "libuv/uv.h"
+#else
+    #include <uv.h>
+#endif
+
+#ifndef NO_OPENSSL
+    #include <openssl/ossl_typ.h>
+#endif
 
 #include "Agent.h"
 
@@ -14,7 +22,7 @@ namespace uWS {
 
 class Server : public Agent<true>
 {
-    friend struct Parser;
+    friend class Parser;
     friend class WebSocket<true>;
     // uWS:: required here because of bug in gcc: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52625
     template <bool IsServer> friend class uWS::Agent;
@@ -47,7 +55,11 @@ private:
     std::mutex upgradeQueueMutex;
 
 public:
+#ifndef NO_OPENSSL
     Server(int port = 0, bool master = true, unsigned int options = 0, unsigned int maxPayload = 1048576, SSLContext sslContext = SSLContext());
+#else
+    Server(int port = 0, bool master = true, unsigned int options = 0, unsigned int maxPayload = 1048576);
+#endif
     ~Server();
     Server(const Server &server) = delete;
     Server &operator=(const Server &server) = delete;

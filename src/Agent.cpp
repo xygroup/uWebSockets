@@ -6,11 +6,17 @@
 #include "Parser.h"
 
 #include <cstring>
-#include <openssl/sha.h>
-#include <openssl/ssl.h>
+
+#ifndef NO_OPENSSL
+    #include <openssl/sha.h>
+    #include <openssl/ssl.h>
+#else
+    #include "sha1/sha1.h"
+#endif
 
 namespace uWS {
 
+#ifndef NO_OPENSSL
 bool firstSSL = true;
 SSLContext::SSLContext(std::string certChainFileName, std::string keyFileName)
 {
@@ -77,6 +83,7 @@ void *SSLContext::newSSL(int fd)
 	SSL_set_mode(ssl, SSL_MODE_RELEASE_BUFFERS);
     return ssl;
 }
+#endif
 
 template <bool IsServer>
 void Agent<IsServer>::closeHandler(Agent<IsServer> *agent)

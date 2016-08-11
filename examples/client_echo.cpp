@@ -4,7 +4,11 @@
 #include <chrono>
 using namespace std;
 
-#include <uWS.h>
+#ifdef BAZEL
+    #include "uWebSockets/uWS.h"
+#else
+    #include <uWS.h>
+#endif
 using namespace uWS;
 
 int main()

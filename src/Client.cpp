@@ -7,9 +7,14 @@
 
 #include <iostream>
 #include <cstring>
-#include <openssl/sha.h>
-#include <openssl/ssl.h>
 #include <vector>
+
+#ifndef NO_OPENSSL
+    #include <openssl/sha.h>
+    #include <openssl/ssl.h>
+#else
+    #include "sha1/sha1.h"
+#endif
 
 void base64(unsigned char *src, char *dst)
 {
@@ -29,7 +34,7 @@ void base64(unsigned char *src, char *dst)
 namespace uWS {
 
 bool firstClient = true;
-Client::Client(bool master, unsigned int options, int pmdMaxWindowBits, unsigned int maxPayload) : pmdMaxWindowBits(pmdMaxWindowBits), Agent<false>(master, options, maxPayload)
+Client::Client(bool master, unsigned int options, int pmdMaxWindowBits, unsigned int maxPayload) : Agent<false>(master, options, maxPayload), pmdMaxWindowBits(pmdMaxWindowBits)
 {
     if (firstClient) {
         srand(time(nullptr));
@@ -75,7 +80,7 @@ struct ConnectData {
     Client *client;
 
     ConnectData(Client *client, const std::string &protocol, const std::string &host, int port, const std::string &path)
-        : client(client), protocol(protocol), host(host), port(port), path(path)
+        : protocol(protocol), host(host), path(path), port(port), client(client)
     {
     };
 };
@@ -90,7 +95,7 @@ struct ClientHTTPData {
     //reference to the receive buffer
     Client *client;
 
-    ClientHTTPData(Client *client, const std::string &responseKey) : client(client), responseKey(responseKey) {}
+    ClientHTTPData(Client *client, const std::string &responseKey) : responseKey(responseKey), client(client) {}
 };
 
 // Tcp connect handler
@@ -206,8 +211,14 @@ void Client::connect(std::string url)
         // compute expected sha1 response key
         unsigned char shaInput[] = "XXXXXXXXXXXXXXXXXXXXXXXX258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
         memcpy(shaInput, key, 24);
+#ifndef NO_OPENSSL
         unsigned char shaDigest[SHA_DIGEST_LENGTH];
         SHA1(shaInput, sizeof(shaInput) - 1, shaDigest);
+#else
+        unsigned char shaDigest[sha1::kSHA1Length];
+        sha1::SHA1HashBytes(shaInput, sizeof(shaInput) - 1, shaDigest);
+        // TODO(Erich) SHA1 can be made to run faster, since the length (60 bytes) is known ahead of time.
+#endif
         char base64ShaDigest[28];
         base64(shaDigest, base64ShaDigest);
     

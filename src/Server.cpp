@@ -6,8 +6,13 @@
 #include "Parser.h"
 
 #include <cstring>
-#include <openssl/sha.h>
-#include <openssl/ssl.h>
+
+#ifndef NO_OPENSSL
+    #include <openssl/sha.h>
+    #include <openssl/ssl.h>
+#else
+    #include "sha1/sha1.h"
+#endif
 
 namespace uWS {
 
@@ -34,10 +39,12 @@ void Server::acceptHandler(uv_poll_t *p, int status, int events)
 #endif
 
     void *ssl = nullptr;
+#ifndef NO_OPENSSL
     if (server->sslContext) {
         ssl = server->sslContext.newSSL(clientFd);
         SSL_set_accept_state((SSL *) ssl);
     }
+#endif
 
     new HTTPSocket(clientPoll, server, ssl);
 }
@@ -52,9 +59,14 @@ void Server::upgradeHandler(Server *server)
 
         unsigned char shaInput[] = "XXXXXXXXXXXXXXXXXXXXXXXX258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
         memcpy(shaInput, upgradeRequest.secKey.data(), 24);
+#ifndef NO_OPENSSL
         unsigned char shaDigest[SHA_DIGEST_LENGTH];
         SHA1(shaInput, sizeof(shaInput) - 1, shaDigest);
-
+#else
+        unsigned char shaDigest[sha1::kSHA1Length];
+        sha1::SHA1HashBytes(shaInput, sizeof(shaInput) - 1, shaDigest);
+        // TODO(Erich) SHA1 can be made to run faster, since the length (60 bytes) is known ahead of time.
+#endif
         memcpy(server->upgradeBuffer, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ", 97);
         base64(shaDigest, server->upgradeBuffer + 97);
         memcpy(server->upgradeBuffer + 125, "\r\n", 2);
@@ -93,7 +105,11 @@ void Server::upgradeHandler(Server *server)
     server->upgradeQueueMutex.unlock();
 }
 
+#ifndef NO_OPENSSL
 Server::Server(int port, bool master, unsigned int options, unsigned int maxPayload, SSLContext sslContext) : port(port), Agent(master, options, maxPayload, sslContext)
+#else
+Server::Server(int port, bool master, unsigned int options, unsigned int maxPayload) : Agent(master, options, maxPayload), port(port)
+#endif
 {
 #ifdef NODEJS_WINDOWS
     options &= ~PERMESSAGE_DEFLATE;

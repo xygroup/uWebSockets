@@ -4,9 +4,18 @@
 #include <queue>
 #include <string>
 #include <functional>
-#include <uv.h>
+
+#ifndef NO_OPENSSL
 #include <openssl/ossl_typ.h>
-#include <zlib.h>
+#endif
+
+#ifdef BAZEL
+    #include "libuv/uv.h"
+    #include "external/zlib/zlib.h"
+#else
+    #include <uv.h>
+    #include <zlib.h>
+#endif
 
 #include "Network.h"
 #include "WebSocket.h"
@@ -27,6 +36,7 @@ enum Options : unsigned int {
     NO_DELAY = 8
 };
 
+#ifndef NO_OPENSSL
 class SSLContext {
 private:
     SSL_CTX *sslContext = nullptr;
@@ -40,6 +50,7 @@ public:
     }
     void *newSSL(int fd);
 };
+#endif
 
 template <bool IsServer>
 struct WebSocketIterator {
@@ -76,7 +87,9 @@ protected:
 	z_stream writeStream;
     bool master, forceClose;
     unsigned int options, maxPayload;
+#ifndef NO_OPENSSL
     SSLContext sslContext;
+#endif
     static void closeHandler(Agent<IsServer> *agent);
 
     char *recvBuffer, *sendBuffer, *inflateBuffer;
@@ -89,7 +102,11 @@ protected:
     std::function<void(WebSocket<IsServer>, char *, size_t)> pingCallback;
     std::function<void(WebSocket<IsServer>, char *, size_t)> pongCallback;
 public:
+#ifndef NO_OPENSSL
     Agent(bool master, unsigned int options = 0, unsigned int maxPayload = 1048576, SSLContext sslContext = SSLContext()) : master(master), options(options), maxPayload(maxPayload), sslContext(sslContext) {};
+#else
+    Agent(bool master, unsigned int options = 0, unsigned int maxPayload = 1048576) : master(master), options(options), maxPayload(maxPayload) {};
+#endif
     Agent(const Agent &server) = delete;
     Agent &operator=(const Agent &server) = delete;
     void onConnection(std::function<void(WebSocket<IsServer>)> connectionCallback);

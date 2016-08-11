@@ -2,10 +2,16 @@
 #define PARSER_H
 
 #include <iostream>
+
 #include "SocketData.h"
 #include "UTF8.h"
 #include "Network.h"
-#include <uv.h>
+
+#ifdef BAZEL
+    #include "libuv/uv.h"
+#else
+    #include <uv.h>
+#endif
 
 #define STRICT_WS
 

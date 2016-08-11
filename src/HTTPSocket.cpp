@@ -5,8 +5,16 @@
 #include <iostream>
 #include <utility>
 #include <cstring>
-#include <uv.h>
-#include <openssl/ssl.h>
+
+#ifdef BAZEL
+    #include "libuv/uv.h"
+#else
+    #include <uv.h>
+#endif
+
+#ifndef NO_OPENSSL
+    #include <openssl/ssl.h>
+#endif
 
 namespace uWS {
 
@@ -73,9 +81,11 @@ uv_os_sock_t HTTPSocket::stop()
 
 void HTTPSocket::close(uv_os_sock_t fd)
 {
+#ifndef NO_OPENSSL
     if (ssl) {
         SSL_free((SSL *) ssl);
     }
+#endif
     ::close(fd);
 }
 
@@ -100,6 +110,7 @@ void HTTPSocket::onReadable(uv_poll_t *p, int status, int events)
     uv_fileno((uv_handle_t *) p, &fd);
 
     int length;
+#ifndef NO_OPENSSL
     if (httpData->ssl) {
         length = SSL_read((SSL *) httpData->ssl, httpData->server->recvBuffer, Server::LARGE_BUFFER_SIZE);
         if (length < 1) {
@@ -110,8 +121,11 @@ void HTTPSocket::onReadable(uv_poll_t *p, int status, int events)
             }
         }
     } else {
+#endif
         length = recv(fd, httpData->server->recvBuffer, Server::LARGE_BUFFER_SIZE, 0);
+#ifndef NO_OPENSSL
     }
+#endif
 
 	if (length == SOCKET_ERROR || length == 0 || httpData->headerBuffer.length() + length > MAX_HEADER_BUFFER_LENGTH) {
         int fd = httpData->stop();

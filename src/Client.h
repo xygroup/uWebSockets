@@ -5,7 +5,12 @@
 #include <queue>
 #include <string>
 #include <functional>
-#include <uv.h>
+
+#ifdef BAZEL
+    #include "libuv/uv.h"
+#else
+    #include <uv.h>
+#endif
 
 #include "Agent.h"
 
@@ -13,7 +18,7 @@ namespace uWS {
 
 class Client : public Agent<false>
 {
-    friend struct Parser;
+    friend class Parser;
     friend class WebSocket<false>;
     // uWS:: required here because of bug in gcc: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52625
     template <bool IsServer> friend class uWS::Agent;

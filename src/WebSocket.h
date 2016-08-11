@@ -2,7 +2,12 @@
 #define WEBSOCKET_H
 
 #include <functional>
-#include <uv.h>
+
+#ifdef BAZEL
+    #include "libuv/uv.h"
+#else
+    #include <uv.h>
+#endif
 
 namespace uWS {
 
@@ -36,7 +41,7 @@ class WebSocket
 {
     friend class Server;
     friend class Client;
-    friend struct Parser;
+    friend class Parser;
     template <bool IsServer2> friend class Agent;
     friend struct std::hash<uWS::WebSocket<IsServer>>;
 private:
