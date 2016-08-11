@@ -1,32 +1,48 @@
-cmake_minimum_required(VERSION 3.1)
-set(CMAKE_BUILD_TYPE Release)
-set(CMAKE_CXX_STANDARD 11)
-project (µWebSockets)
-set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -pthread -std=c++11 -Wl,--no-as-needed")
+project (uWebSockets)
 
-find_package(OpenSSL REQUIRED)
-find_package(ZLIB REQUIRED)
+cmake_minimum_required (VERSION 3.1.0)
 
-find_path(LIBUV_INCLUDE_DIR uv.h)
-find_library(LIBUV_LIBRARY NAMES uv uv1)
+set(CMAKE_MACOSX_RPATH 1)
 
-add_library(uWS SHARED src/Agent.cpp src/Base64.cpp src/Client.cpp src/Extensions.cpp src/HTTPSocket.cpp src/Network.cpp src/Server.cpp src/UTF8.cpp src/WebSocket.cpp)
-target_include_directories(uWS PUBLIC src)
+include(${WORKSPACE}/WORKSPACE.cmake)
 
-target_include_directories(uWS PUBLIC ${LIBUV_INCLUDE_DIR})
-target_include_directories(uWS PUBLIC ${LIBUV_INCLUDE_DIR})
-target_include_directories(uWS PUBLIC ${ZLIB_INCLUDE_DIRS})
-target_include_directories(uWS PUBLIC ${OPENSSL_INCLUDE_DIR})
-target_link_libraries (uWS LINK_PUBLIC ${LIBUV_LIBRARY})
-target_link_libraries (uWS LINK_PUBLIC ${OPENSSL_SSL_LIBRARY})
-target_link_libraries (uWS LINK_PUBLIC ${OPENSSL_CRYPTO_LIBRARY})
-target_link_libraries (uWS LINK_PUBLIC ${ZLIB_LIBRARY})
+include_directories(".")
 
-if (UNIX)
-target_link_libraries (uWS LINK_PUBLIC pthread)
-endif (UNIX)
+add_compile_options(-stdlib=libc++)
+add_compile_options(-std=c++14)
+add_compile_options(-pthread)
 
-add_subdirectory(examples)
+# required for libuv
+add_compile_options(-D_LARGEFILE_SOURCE)
+add_compile_options(-D_FILE_OFFSET_BITS=64)
 
-install (TARGETS uWS ARCHIVE DESTINATION /usr/local/lib LIBRARY DESTINATION /usr/local/lib)
-install (FILES src/Agent.h src/Base64.h src/Client.h src/HTTPSocket.h src/Network.h src/Parser.h src/Server.h src/SocketData.h src/uWS.h src/UTF8.h src/WebSocket.h DESTINATION /usr/local/include/uWS)
+#required for uWebSockets
+add_compile_options(-DBAZEL)
+add_compile_options(-DNO_OPENSSL)
+
+SET( CPP_FILES
+)
+SET( H_FILES
+)
+
+SET( SOURCE_FILES ${CPP_FILES} ${H_FILES})
+
+SET( BUILD_FILES
+  ${PROJECT_SOURCE_DIR}/BUILD
+  ${PROJECT_SOURCE_DIR}/PACKAGE.cmake
+)
+
+set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+find_package(Threads REQUIRED)
+
+add_executable(echo ${PROJECT_SOURCE_DIR}/examples/echo.cpp ${SOURCE_FILES} ${BUILD_FILES})
+target_link_libraries(echo ${UWEBSOCKETS_LIB} ${ZLIB_LIB} ${LIBUV_LIB} ${SHA1_LIB})
+target_link_libraries(echo ${CMAKE_THREAD_LIBS_INIT})
+
+add_executable(client_echo ${PROJECT_SOURCE_DIR}/examples/client_echo.cpp ${SOURCE_FILES} ${BUILD_FILES})
+target_link_libraries(client_echo ${UWEBSOCKETS_LIB} ${ZLIB_LIB} ${LIBUV_LIB} ${SHA1_LIB})
+target_link_libraries(client_echo ${CMAKE_THREAD_LIBS_INIT})
+
+add_custom_target (FORMAT ALL
+    /usr/local/bin/clang-format -style=Google -i ${SOURCE_FILES}
+)

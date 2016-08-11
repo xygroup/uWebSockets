@@ -46,7 +46,7 @@ int main()
 
         client.onDisconnection([&](ClientSocket socket, int code, char *message, size_t length) {
         });
-		client.connect("ws://127.0.0.1:" + to_string(port) + "/testing123");
+//		client.connect("ws://127.0.0.1:" + to_string(port) + "/testing123");
 		client.connect("127.0.0.1:" + to_string(port));
 
         server.run();
