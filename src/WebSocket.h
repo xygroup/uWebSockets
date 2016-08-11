@@ -54,7 +54,6 @@ private:
     void handleFragment(const char *fragment, size_t length, OpCode opCode, bool fin, size_t remainingBytes, bool compressed);
 protected:
     uv_poll_t *p;
-    WebSocket<IsServer>(uv_poll_t *p);
 public:
     Address getAddress();
     void close(bool force = false, unsigned short code = 0, char *data = nullptr, size_t length = 0);
@@ -66,6 +65,8 @@ public:
     static void finalizeMessage(PreparedMessage *preparedMessage);
     void *getData();
     void setData(void *data);
+    uv_poll_t *getSocket() { return p; }
+    WebSocket<IsServer>(uv_poll_t *p);
     WebSocket<IsServer>() : p(nullptr) {}
     bool operator==(const WebSocket<IsServer> &other) const {return p == other.p;}
     bool operator<(const WebSocket<IsServer> &other) const {return p < other.p;}
