@@ -133,6 +133,20 @@ Server::Server(int port, bool master, unsigned int options, unsigned int maxPayl
 
     if (port) {
         uv_os_sock_t listenFd = socket(AF_INET, SOCK_STREAM, 0);
+
+        int reuse = 1;
+        if (setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(int)) < 0) {
+            std::cout << "setsockopt(SO_REUSEADDR) failed" << std::endl;
+            throw ERR_LISTEN;
+        }
+
+#ifdef SO_REUSEPORT
+        if (setsockopt(listenFd, SOL_SOCKET, SO_REUSEPORT, (const char*)&reuse, sizeof(reuse)) < 0) {
+            std::cout << "setsockopt(SO_REUSEPORT) failed" << std::endl;
+            throw ERR_LISTEN;
+        }
+#endif
+
         listenAddr.sin_family = AF_INET;
         listenAddr.sin_addr.s_addr = INADDR_ANY;
         listenAddr.sin_port = htons(port);
