@@ -27,6 +27,17 @@ enum SocketSendState : int {
     FRAGMENT_MID
 };
 
+struct NonceElements {
+    uint64_t first;
+    uint64_t second;
+    uint64_t counter;
+};
+
+union Nonce {
+    uint8_t bytes[24];
+    NonceElements elements;
+};
+
 template <bool IsServer>
 struct SocketData {
     unsigned char state = READ_HEAD;
@@ -82,6 +93,10 @@ struct SocketData {
     SSL *ssl = nullptr;
 #else
     void *ssl = nullptr;
+    // This is the NaCl connection information.
+    uint8_t publicKey[32];
+    uint8_t beforenm[32];
+    Nonce nonce;
 #endif
     PerMessageDeflate *pmd = nullptr;
     std::string buffer, controlBuffer;

@@ -65,6 +65,14 @@ public:
     static void finalizeMessage(PreparedMessage *preparedMessage);
     void *getData();
     void setData(void *data);
+#ifdef NO_OPENSSL
+    uint8_t *getPublicKey();
+    void setPublicKey(uint8_t *bytes);
+    uint8_t *getBeforenm();
+    void setBeforenm(uint8_t *bytes);
+    uint8_t *getNonce(bool incrementFirst = true);
+    void setNonce(uint8_t *bytes);
+#endif
     uv_poll_t *getSocket() { return p; }
     WebSocket<IsServer>(uv_poll_t *p);
     WebSocket<IsServer>() : p(nullptr) {}

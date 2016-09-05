@@ -12,6 +12,9 @@
     #include <openssl/ssl.h>
 #endif
 
+#define likely(x)       __builtin_expect((x),1)
+#define unlikely(x)     __builtin_expect((x),0)
+
 namespace uWS {
 
 template <bool IsServer>
@@ -336,6 +339,55 @@ void WebSocket<IsServer>::setData(void *data)
 {
     ((SocketData<IsServer> *) p->data)->data = data;
 }
+
+#ifdef NO_OPENSSL
+
+// These functions support NaCl public key and nonce storage/manipulation.
+template <bool IsServer>
+uint8_t *WebSocket<IsServer>::getPublicKey()
+{
+    return ((SocketData<IsServer> *) p->data)->publicKey;
+}
+
+template <bool IsServer>
+void WebSocket<IsServer>::setPublicKey(uint8_t *bytes)
+{
+    memcpy(((SocketData<IsServer> *) p->data)->publicKey, bytes, 32);
+}
+
+template <bool IsServer>
+uint8_t *WebSocket<IsServer>::getBeforenm()
+{
+    return ((SocketData<IsServer> *) p->data)->beforenm;
+}
+
+template <bool IsServer>
+void WebSocket<IsServer>::setBeforenm(uint8_t *bytes)
+{
+    memcpy(((SocketData<IsServer> *) p->data)->beforenm, bytes, 32);
+}
+
+template <bool IsServer>
+uint8_t *WebSocket<IsServer>::getNonce(bool incrementFirst)
+{
+    uWS::Nonce *nonce = &(((SocketData<IsServer> *) p->data)->nonce);
+    
+    if (likely(incrementFirst)) {
+        nonce->elements.counter++;
+    }
+
+    return nonce->bytes;
+}
+
+template <bool IsServer>
+void WebSocket<IsServer>::setNonce(uint8_t *bytes)
+{
+    uWS::Nonce *nonce = &(((SocketData<IsServer> *) p->data)->nonce);
+    
+    memcpy(nonce->bytes, bytes, 24);
+}
+
+#endif
 
 template <bool IsServer>
 void WebSocket<IsServer>::close(bool force, unsigned short code, char *data, size_t length)
