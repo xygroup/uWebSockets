@@ -1,10 +1,10 @@
 # You can use this library as: #include "uWebSockets/uWS.h"
-cc_inc_library(
+cc_library(
     name = "uWebSockets",
     hdrs = glob([
         "src/*.h",
     ]),
-    prefix = "src",
+    include_prefix = "src",
     deps = [":uWebSockets_impl"],
     visibility = ["//visibility:public"],
 )
@@ -24,7 +24,7 @@ cc_library(
     deps = [
         "//libuv",
         "//sha1",
-        "@zlib//:zlib",
+        "//zlib",
     ],
     linkstatic = 1,
     visibility = ["//visibility:private"],
